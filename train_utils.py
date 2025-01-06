@@ -7,18 +7,33 @@ from torch.nn import functional as F
 
 
 def initLogging(log_file: str, level: str = "INFO"):
-    logging.basicConfig(filename=log_file, filemode='w',
-                        level=getattr(logging, level, None),
-                        format='[%(levelname)s %(asctime)s] %(message)s',
-                        datefmt='%m-%d %H:%M:%S')
+    # 设置日志的基本配置
+    logging.basicConfig(
+        # 日志文件路径
+        filename=log_file,
+        # 文件写入模式，'w'表示覆盖写入
+        filemode='w',
+        # 日志级别，默认为INFO
+        level=getattr(logging, level, None),
+        # 日志格式，包括级别、时间和消息内容
+        format='[%(levelname)s %(asctime)s] %(message)s',
+        # 时间格式
+        datefmt='%m-%d %H:%M:%S'
+    )
+    # 添加日志输出到控制台的处理器
     logging.getLogger().addHandler(logging.StreamHandler())
 
 
 def set_seed(CUR_SEED):
+    # 设置Python内置的随机数生成器的种子
     random.seed(CUR_SEED)
+    # 设置NumPy的随机数生成器的种子
     np.random.seed(CUR_SEED)
+    # 设置PyTorch的随机数生成器的种子
     torch.manual_seed(CUR_SEED)
+    # 设置PyTorch的cuDNN后端为确定性模式，确保每次运行的结果一致
     torch.backends.cudnn.deterministic = True
+    # 禁用PyTorch的cuDNN后端的基准测试模式，以确保结果的一致性
     torch.backends.cudnn.benchmark = False
 
 

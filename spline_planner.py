@@ -15,11 +15,11 @@ def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     dtp = t[..., None] ** torch.tensor([0, 0, 1, 2]).to(v0.device) * torch.arange(4).to(v0.device)
     
     coefficients = cubic_spline_coefficients(v0, dv0, vf, 0, tf)
-    coefficients = torch.stack(coefficients).unsqueeze(-1)
+    coefficients = torch.stack(coefficients).unsqueeze(-1) # [4, 1], 增加一个维度
 
     v = tp @ coefficients
     a = dtp @ coefficients
-    s = torch.cumsum(v * tf / N, dim=0)
+    s = torch.cumsum(v * tf / N, dim=0) # 沿着行方向累加，得到累积位移
     s = torch.cat((torch.zeros(1, 1).to(v0.device), s[:-1]), dim=0)
     s += offset
     i = (s / 0.1).long()
@@ -58,12 +58,13 @@ class SplinePlanner:
         for path in paths:
             path = torch.from_numpy(path).to(x0.device).type(torch.float)
             for v in self.v_grid:
-                traj = self.calc_trajectory(x0[3], x0[4], v, tf, path, self.first_stage_horizion*10) # [x, y, yaw, v, a, r, t]
+                # 根据不同的终点采样速度，计算轨迹，path提供横向路径
+                traj = self.calc_trajectory(x0[3], x0[4], v, tf, path, self.first_stage_horizion*10) # [x, y, yaw, v, a, r, t] 31 x 7
                 if traj is None:
                     continue
 
                 xf = traj[-1, :2]
-                if xf_set and torch.cdist(xf.unsqueeze(0), torch.stack(xf_set)).min() < 0.5:
+                if xf_set and torch.cdist(xf.unsqueeze(0), torch.stack(xf_set)).min() < 0.5: # 判断终点是否过近，如果位置过近，则跳过
                     continue
                 else:
                     xf_set.append(xf)

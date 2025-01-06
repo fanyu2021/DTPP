@@ -4,30 +4,49 @@ from prediction_modules import *
 
 class Encoder(nn.Module):
     def __init__(self, dim=256, layers=3, heads=8, dropout=0.1):
+        # 调用父类构造函数
         super(Encoder, self).__init__()
+
+        # 定义车道长度
         self._lane_len = 50
+        # 定义车道特征维度
         self._lane_feature = 7
+        # 定义斑马线长度
         self._crosswalk_len = 30
+        # 定义斑马线特征维度
         self._crosswalk_feature = 3
+
+        # 初始化agent编码器
+        # TODO(fanyu): 这里的agent_dim 为什么是11？
         self.agent_encoder = AgentEncoder(agent_dim=11)
+        # 初始化自车编码器
+        # TODO(fanyu): 这里的agent_dim 为什么是7？
         self.ego_encoder = AgentEncoder(agent_dim=7)
+        # 初始化车道编码器
         self.lane_encoder = VectorMapEncoder(self._lane_feature, self._lane_len)
+        # 初始化斑马线编码器
         self.crosswalk_encoder = VectorMapEncoder(self._crosswalk_feature, self._crosswalk_len)
+
+        # 初始化注意力层
         attention_layer = nn.TransformerEncoderLayer(d_model=dim, nhead=heads, dim_feedforward=dim*4,
                                                      activation=F.gelu, dropout=dropout, batch_first=True)
+        # 初始化融合编码器
         self.fusion_encoder = nn.TransformerEncoder(attention_layer, layers, enable_nested_tensor=False)
 
     def forward(self, inputs):
         # agents
-        ego = inputs['ego_agent_past']
-        neighbors = inputs['neighbor_agents_past']
+        ego = inputs['ego_agent_past'] # ego shape: torch.Size([1, 21, 7])
+        neighbors = inputs['neighbor_agents_past'] # neighbors shape: torch.Size([1, 20, 21, 11])
+        # actors shape: torch.Size([1, 21, 21, 5)
         actors = torch.cat([ego[:, None, :, :5], neighbors[..., :5]], dim=1)
 
         # agent encoding
-        encoded_ego = self.ego_encoder(ego)
-        encoded_neighbors = [self.agent_encoder(neighbors[:, i]) for i in range(neighbors.shape[1])]
-        encoded_actors = torch.stack([encoded_ego] + encoded_neighbors, dim=1)
-        actors_mask = torch.eq(actors[:, :, -1].sum(-1), 0)
+        encoded_ego = self.ego_encoder(ego) # encoded_ego shape: torch.Size([1, 256])
+        # encoded_neighbors List(len=20) 20 X shape: torch.Size([1, 256])
+        encoded_neighbors = [self.agent_encoder(neighbors[:, i]) for i in range(neighbors.shape[1])] 
+        # encoded_actors shape: torch.Size([1, 21, 256])
+        encoded_actors = torch.stack([encoded_ego] + encoded_neighbors, dim=1) 
+        actors_mask = torch.eq(actors[:, :, -1].sum(-1), 0) # actors[:, :, -1] 等价于 actors[:, :, -1, :], 去掉无效值？
 
         # vector maps
         map_lanes = inputs['map_lanes']

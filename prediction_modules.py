@@ -11,10 +11,14 @@ class PositionalEncoding(nn.Module):
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
         pe = torch.zeros(max_len, 1, d_model)
+        # 对 pe 进行操作，使得其中的每个元素的奇数位和偶数位分别对应于正弦和余弦函数的值
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
+        # 将pe转置，调整维度顺序
         pe = pe.permute(1, 0, 2)
+        # 将 pe 注册为模型的buffer，在pytorch中，模型的buffer是不会被训练的参数，常用于存储模型在训练过程中不会改变的数据，如这里的位置编码。
         self.register_buffer('pe', pe)
+        # 初始化一个dropout层，dropout概率为dropout，用于训练过程中随机丢弃一些位置编码数据，如这里的位置编码
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
@@ -25,11 +29,16 @@ class PositionalEncoding(nn.Module):
 
 class AgentEncoder(nn.Module):
     def __init__(self, agent_dim):
+        # 调用父类AgentEncoder的构造函数
         super(AgentEncoder, self).__init__()
-        self.motion = nn.LSTM(agent_dim, 256, 2, batch_first=True)
+        # 创建一个LSTM层，输入维度为agent_dim，隐藏层维度为256，层数为2，设置为batch_first=True
+        self.motion = nn.LSTM(input_size=agent_dim, hidden_size=256, num_layers=2, batch_first=True)
 
     def forward(self, inputs):
+        # 调用motion方法处理输入，得到轨迹traj和其他信息（此处未使用）
         traj, _ = self.motion(inputs)
+
+        # 提取轨迹traj的最后一行作为输出
         output = traj[:, -1]
 
         return output
