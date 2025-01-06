@@ -69,6 +69,7 @@ class AgentEncoder(nn.Module):
     """
     def __init__(self, agent_dim):
         # 调用父类AgentEncoder的构造函数
+        # 调用父类AgentEncoder的构造函数
         super(AgentEncoder, self).__init__()
         # 初始化LSTM网络用于提取智能体运动特征
         # 参数说明：

@@ -38,6 +38,7 @@ def train_epoch(data_loader, encoder, decoder, optimizer):
             neighbors_gt_future = batch[6].to(args.device)  # 邻居车辆未来轨迹 [batch_size, 10, 80, 3]
             
             # 生成有效掩码（判断x,y,heading是否非零）
+            # TODO(fanyu): 准备一个掩码，用于指示哪些邻居的未来轨迹是有效的，取前3个维度，不等于0的维度，然后将其转换为布尔类型的张量
             neighbors_future_valid = torch.ne(neighbors_gt_future[..., :3], 0)
 
             # 编码阶段（提取环境特征）
@@ -73,6 +74,7 @@ def train_epoch(data_loader, encoder, decoder, optimizer):
                                    ego_gt_future, neighbors_gt_future, neighbors_future_valid)
             epoch_metrics.append(metrics)
             epoch_loss.append(loss.item())
+            # 更新进度条的描述信息，显示当前批的平均损失值
             # 更新进度条的描述信息，显示当前批的平均损失值
             data_epoch.set_postfix(loss='{:.4f}'.format(np.mean(epoch_loss)))
 
