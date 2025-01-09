@@ -1,0 +1,20 @@
+env_inputs(
+  ego_agent_past: tensor of past ego states(x,y,heading,vx,vy,ax,ay), <tensor>, [n,21,7]
+  neighbor_agents_past: tensor of past neighbor states(track_tocken,vx,vy,heading,width,length,x,y,obstype（3-d）), <tensor>, [n,20,21,11]
+  map_lanes: tensor of map lanes(x,y,heading,trafficlight_type(4-d)), <tensor>, [n,40,50,7]
+  map_crosswalks: tensor of map crosswalks(x,y,heading), <tensor>, [n,5,30,3]
+  route_lanes: tensor of route lines(x,y,heading), <tensor>, [n,10,50,3]
+) <dict>
+
+encoder_outputs(
+  encoding: tensor of shape [n,236,256], <tensor>
+  mask: tensor of shape [n, 236]
+) <dict>
+
+# encoder_outputs = self.encoder(env_inputs)
+
+
+ego_trajs: tensor of trajectory-tree(trajs)(x, y, yaw, v, a, r)  [n, 30. 80, 6]
+agent_states（neighbor_agents_past）: tensor of past neighbor states(track_tocken,vx,vy,heading,width,length,x,y,obstype（3-d）), <tensor>, [n,20,21,11]
+timesteps: timestamps, <int>, 3*10 = 30
+# agent_trajs, scores, _, _ = self.decoder(encoder_outputs, ego_trajs, agent_states, timesteps)

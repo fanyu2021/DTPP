@@ -220,10 +220,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', type=str)
-    parser.add_argument('--map_path', type=str)
-    parser.add_argument('--model_path', type=str)
-    parser.add_argument('--test_type', type=str, default='closed_loop_nonreactive_agents')
+    # parser.add_argument('--data_path', type=str)
+    parser.add_argument('--data_path', type=str, default='/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-v1.1_test/data/cache/test')
+    parser.add_argument('--map_path', type=str, default='/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-maps-v1.0/maps')
+    parser.add_argument('--model_path', type=str, default='/home/xph123/fanyu/E2E/DTPP/base_model/base_model.pth')
+    parser.add_argument('--test_type', type=str, default='closed_loop_reactive_agents')
     parser.add_argument('--load_test_set', action='store_true')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--scenarios_per_type', type=int, default=20)

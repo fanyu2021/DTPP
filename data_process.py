@@ -190,20 +190,31 @@ class DataProcessor(object):
         return first_trajs, second_trajs
 
     def plot_scenario(self, data):
+        # 判断 data 中是否包含 'lanes', 'crosswalks', 'route_lanes', 'ego_agent_past', 'neighbor_agents_past',
+        # 'ego_agent_future', 'neighbor_agents_future', 'first_stage_ego_trajectory', 'second_stage_ego_trajectory'
+        
         # Create map layers
-        create_map_raster(data['lanes'], data['crosswalks'], data['route_lanes'])
+        if all(key in data for key in ['lanes', 'crosswalks', 'route_lanes']):
+            create_map_raster(data['lanes'], data['crosswalks'], data['route_lanes'])
 
         # Create agent layers
-        create_ego_raster(data['ego_agent_past'][-1])
-        create_agents_raster(data['neighbor_agents_past'][:, -1])
+        if 'ego_agent_past' in data:
+            create_ego_raster(data['ego_agent_past'][-1])
+        if 'neighbor_agents_past' in data:
+            create_agents_raster(data['neighbor_agents_past'][:, -1])
 
         # Draw past and future trajectories
-        draw_trajectory(data['ego_agent_past'], data['neighbor_agents_past'][:1])
-        draw_trajectory(data['ego_agent_future'], data['neighbor_agents_future'][:1])
+        if 'ego_agent_past' in data and 'neighbor_agents_past' in data:
+            draw_trajectory(data['ego_agent_past'], data['neighbor_agents_past'][:1])
+        if 'ego_agent_future' in data and 'neighbor_agents_future' in data:
+            draw_trajectory(data['ego_agent_future'], data['neighbor_agents_future'][:1])
+        
 
         # Draw candidate trajectories
-        draw_plans(data['first_stage_ego_trajectory'], 1)
-        draw_plans(data['second_stage_ego_trajectory'], 2)
+        if 'first_stage_ego_trajectory' in data:
+            draw_plans(data['first_stage_ego_trajectory'], 1)
+        if 'second_stage_ego_trajectory' in data:
+            draw_plans(data['second_stage_ego_trajectory'], 2)
 
         plt.gca().set_aspect('equal')
         plt.tight_layout()
@@ -269,10 +280,14 @@ class DataProcessor(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Data Processing')
     parser.add_argument('--debug', action="store_true", help='if visualize the data output', default=False)
-    parser.add_argument('--data_path', type=str, help='path to the data')
-    parser.add_argument('--map_path', type=str, help='path to the map')    
-    parser.add_argument('--save_path', type=str, help='path to save the processed data')
-    parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=None)
+    # parser.add_argument('--data_path', type=str, help='path to the data')
+    parser.add_argument('--data_path', type=str, help='path to the data', default="/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-v1.1_val/data/cache/val")
+    # parser.add_argument('--map_path', type=str, help='path to the map')  
+    parser.add_argument('--map_path', type=str, help='path to the map', default="/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-maps-v1.0/maps")
+    # parser.add_argument('--save_path', type=str, help='path to save the processed data')
+    parser.add_argument('--save_path', type=str, help='path to save the processed data', default="/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data")
+    # parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=None)
+    parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=6000)
 
     args = parser.parse_args()
     os.makedirs(args.save_path, exist_ok=True)
