@@ -31,8 +31,7 @@ class AgentEncoder(nn.Module):
     def __init__(self, agent_dim):
         # 调用父类AgentEncoder的构造函数
         super(AgentEncoder, self).__init__()
-        # 创建一个LSTM层，输入维度为agent_dim，隐藏层维度为256，层数为2，设置为batch_first=True
-        self.motion = nn.LSTM(input_size=agent_dim, hidden_size=256, num_layers=2, batch_first=True)
+        self.motion = nn.LSTM(agent_dim, 256, 2, batch_first=True)
 
     def forward(self, inputs):
         # 调用motion方法处理输入，得到轨迹traj和其他信息（此处未使用）

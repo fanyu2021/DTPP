@@ -1,0 +1,9 @@
+.idea/
+.vscode/
+__pycache__/
+# base_model/
+# docs/
+# nuplan-devkit/
+# simulator/
+# test_carla_fy.py
+testing_log/

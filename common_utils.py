@@ -80,7 +80,12 @@ def build_metrics_aggregators(experiment, output_dir, aggregator_metric_dir):
     metric_aggregator_config = get_aggregator_config(experiment)
 
     if not aggregator_save_path.exists():
-        aggregator_save_path.mkdir(exist_ok=True, parents=True)
+        try:
+            aggregator_save_path.mkdir(exist_ok=True, parents=True)
+        except Exception as e:
+            print('Failed to create directory at {}'.format(aggregator_save_path))
+            print(f"出现错误：{e}")
+            raise e
 
     name = metric_aggregator_config[0]
     metric_weights = metric_aggregator_config[1]

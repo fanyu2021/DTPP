@@ -209,8 +209,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Training')
     parser.add_argument('--name', type=str, help='log name', default="DTPP_training")
     parser.add_argument('--seed', type=int, help='fix random seed', default=3407)
-    parser.add_argument('--train_set', type=str, help='path to training data')
-    parser.add_argument('--valid_set', type=str, help='path to validation data')
+    # parser.add_argument('--train_set', type=str, help='path to training data')
+    parser.add_argument('--train_set', type=str, help='path to training data', default='/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data/train')
+    # parser.add_argument('--valid_set', type=str, help='path to validation data')
+    parser.add_argument('--valid_set', type=str, help='path to validation data', default='/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data/val')
+
     parser.add_argument('--num_neighbors', type=int, help='number of neighbor agents to predict', default=10)
     parser.add_argument('--num_candidates', type=int, help='number of max candidate trajectories', default=30)
     parser.add_argument('--variable_weights', type=bool, help='use variable cost weights', default=False)
