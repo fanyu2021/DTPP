@@ -196,9 +196,7 @@ def main(args):
     vehicle = world.try_spawn_actor(vehicle_bp, spawn_point)
     print(f'Spawn vehicle at {spawn_point}.')
     
-    # 生成导航路径
-    from agents.navigation.global_route_planner import GlobalRoutePlanner
-    grp = GlobalRoutePlanner(calar_map, sampling_resolution=0.5)
+
 
 
 
