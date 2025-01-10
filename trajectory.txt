@@ -1,0 +1,1 @@
+<nuplan.planning.simulation.trajectory.interpolated_trajectory.InterpolatedTrajectory object at 0x7f9f68296eb0>

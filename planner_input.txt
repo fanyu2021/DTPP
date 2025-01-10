@@ -1,0 +1,7 @@
+PlannerInput(iteration=SimulationIteration(time_point=TimePoint(time_us=1621964113600077), index=148), history=<nuplan.planning.simulation.history.simulation_history_buffer.SimulationHistoryBuffer object at 0x7fa0603ede50>, traffic_light_data=[])
+
+
+
+<nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario.NuPlanScenario object at 0x7f243c112340>
+
+

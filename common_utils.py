@@ -219,20 +219,21 @@ def get_scenario_map():
 
 
 def get_filter_parameters(num_scenarios_per_type=None, limit_total_scenarios=None):
+    # TODO(fanyu): only use the following scenarios for now. Date: 2025/01/09
     scenario_types = [
-        'starting_left_turn',
-        'starting_right_turn',
-        'starting_straight_traffic_light_intersection_traversal',
-        #'stopping_with_lead',
-        'high_lateral_acceleration',
-        'high_magnitude_speed',
-        'low_magnitude_speed',
-        'traversing_pickup_dropoff',
-        #'waiting_for_pedestrian_to_cross',
-        #'behind_long_vehicle',
-        #'stationary_in_traffic',
-        'near_multiple_vehicles',
-        'changing_lane',
+        # 'starting_left_turn',
+        # 'starting_right_turn',
+        # 'starting_straight_traffic_light_intersection_traversal',
+        # #'stopping_with_lead',
+        # 'high_lateral_acceleration',
+        # 'high_magnitude_speed',
+        # 'low_magnitude_speed',
+        # 'traversing_pickup_dropoff',
+        # #'waiting_for_pedestrian_to_cross',
+        # #'behind_long_vehicle',
+        # #'stationary_in_traffic',
+        # 'near_multiple_vehicles',
+        # 'changing_lane',
         'following_lane_with_lead',
     ]
 
