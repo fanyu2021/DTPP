@@ -7,3 +7,5 @@ __pycache__/
 # simulator/
 # test_carla_fy.py
 testing_log/
+training_log/
+*.log

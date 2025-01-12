@@ -1,0 +1,9 @@
+[INFO 01-10 11:32:18] ------------- DTPP_training -------------
+[INFO 01-10 11:32:18] Batch size: 16
+[INFO 01-10 11:32:18] Learning rate: 0.0002
+[INFO 01-10 11:32:18] Use device: cpu
+[INFO 01-10 11:32:18] Encoder Params: 4052224
+[INFO 01-10 11:32:18] Decoder Params: 1846682
+[INFO 01-10 11:32:21] Dataset Prepared: 3900 train data, 1671 validation data
+
+[INFO 01-10 11:32:21] Epoch 1/30
