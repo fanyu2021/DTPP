@@ -13,6 +13,7 @@ from nuplan.planning.scenario_builder.scenario_filter import ScenarioFilter
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_builder import NuPlanScenarioBuilder
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_utils import ScenarioMapping
 
+import dtpp_data_path as ddp
 
 # define data processor
 class DataProcessor(object):
@@ -278,16 +279,17 @@ class DataProcessor(object):
 
 
 if __name__ == "__main__":
+    dpath = ddp.dtpp_data_path()
     parser = argparse.ArgumentParser(description='Data Processing')
     parser.add_argument('--debug', action="store_true", help='if visualize the data output', default=False)
     # parser.add_argument('--data_path', type=str, help='path to the data')
-    parser.add_argument('--data_path', type=str, help='path to the data', default="/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-v1.1_val/data/cache/val")
+    parser.add_argument('--data_path', type=str, help='path to the data', default=dpath + "nuplan-v1.1_val/data/cache/val")
     # parser.add_argument('--map_path', type=str, help='path to the map')  
-    parser.add_argument('--map_path', type=str, help='path to the map', default="/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-maps-v1.0/maps")
+    parser.add_argument('--map_path', type=str, help='path to the map', default=dpath + "nuplan-maps-v1.0/maps")
     # parser.add_argument('--save_path', type=str, help='path to save the processed data')
-    parser.add_argument('--save_path', type=str, help='path to save the processed data', default="/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data")
-    # parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=None)
-    parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=6000)
+    parser.add_argument('--save_path', type=str, help='path to save the processed data', default=dpath + "processed_data")
+    parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=None)
+    # parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=6000)
 
     args = parser.parse_args()
     os.makedirs(args.save_path, exist_ok=True)

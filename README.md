@@ -31,6 +31,12 @@ conda install pytorch==2.0.1 pytorch-cuda=11.7 -c pytorch -c nvidia
 ```
 export NUPLAN_EXP_ROOT="$HOME/nuplan/exp"
 ```
+- 设置nupaln数据路径：在'dtpp_data_path.py'文件中设置nuplan数据路径。例如：
+  '''
+  
+  '''
+
+
 
 ### 2. Data processing
 Before training the DTPP model, you need to preprocess the raw data from nuPlan using:

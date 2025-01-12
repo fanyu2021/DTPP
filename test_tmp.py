@@ -8,23 +8,23 @@ from planner import Planner
 from common_utils import *
 warnings.filterwarnings("ignore") 
 
-from nuplan.planning.simulation.planner.idm_planner import IDMPlanner
-from nuplan.planning.simulation.planner.simple_planner import SimplePlanner
+# from nuplan.planning.simulation.planner.idm_planner import IDMPlanner
+# from nuplan.planning.simulation.planner.simple_planner import SimplePlanner
 from nuplan.planning.utils.multithreading.worker_parallel import SingleMachineParallelExecutor
 from nuplan.planning.scenario_builder.scenario_filter import ScenarioFilter
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_builder import NuPlanScenarioBuilder
 from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario_utils import ScenarioMapping
-from nuplan.planning.simulation.callback.simulation_log_callback import SimulationLogCallback
-from nuplan.planning.simulation.callback.metric_callback import MetricCallback
-from nuplan.planning.simulation.callback.multi_callback import MultiCallback
+# from nuplan.planning.simulation.callback.simulation_log_callback import SimulationLogCallback
+# from nuplan.planning.simulation.callback.metric_callback import MetricCallback
+# from nuplan.planning.simulation.callback.multi_callback import MultiCallback
 # from nuplan.planning.simulation.main_callback.metric_aggregator_callback import MetricAggregatorCallback
 # from nuplan.planning.simulation.main_callback.metric_file_callback import MetricFileCallback
-from nuplan.planning.simulation.main_callback.multi_main_callback import MultiMainCallback
+# from nuplan.planning.simulation.main_callback.multi_main_callback import MultiMainCallback
 # from nuplan.planning.simulation.main_callback.metric_summary_callback import MetricSummaryCallback
-from nuplan.planning.simulation.observation.tracks_observation import TracksObservation
+# from nuplan.planning.simulation.observation.tracks_observation import TracksObservation
 from nuplan.planning.simulation.observation.idm_agents import IDMAgents
-from nuplan.planning.simulation.controller.perfect_tracking import PerfectTrackingController
-from nuplan.planning.simulation.controller.log_playback import LogPlaybackController
+# from nuplan.planning.simulation.controller.perfect_tracking import PerfectTrackingController
+# from nuplan.planning.simulation.controller.log_playback import LogPlaybackController
 from nuplan.planning.simulation.controller.two_stage_controller import TwoStageController
 from nuplan.planning.simulation.controller.tracker.lqr import LQRTracker
 from nuplan.planning.simulation.controller.motion_model.kinematic_bicycle import KinematicBicycleModel
@@ -32,40 +32,17 @@ from nuplan.planning.simulation.simulation_time_controller.step_simulation_time_
 from nuplan.planning.simulation.runner.simulations_runner import SimulationRunner
 from nuplan.planning.simulation.simulation import Simulation
 from nuplan.planning.simulation.simulation_setup import SimulationSetup
-from nuplan.planning.nuboard.nuboard import NuBoard
-from nuplan.planning.nuboard.base.data_class import NuBoardFile
-from nuplan.planning.scenario_builder.nuplan_db.nuplan_scenario import NuPlanScenario
+# from nuplan.planning.nuboard.nuboard import NuBoard
+# from nuplan.planning.nuboard.base.data_class import NuBoardFile
 
+from carla2nuplan_utils import *
 
+# import carla
+# from agents.navigation.behavior_agent import BehaviorAgent
 
-# def build_simulation_experiment_folder(output_dir, simulation_dir, metric_dir, aggregator_metric_dir):
-#     """
-#     Builds the main experiment folder for simulation.
-#     :return: The main experiment folder path.
-#     """
-#     print('Building experiment folders...')
-
-#     exp_folder = pathlib.Path(output_dir)
-#     print(f'\nFolder where all results are stored: {exp_folder}\n')
-#     exp_folder.mkdir(parents=True, exist_ok=True)
-
-#     # Build nuboard event file.
-#     nuboard_filename = exp_folder / (f'nuboard_{int(time.time())}' + NuBoardFile.extension())
-#     nuboard_file = NuBoardFile(
-#         simulation_main_path=str(exp_folder),
-#         simulation_folder=simulation_dir,
-#         metric_main_path=str(exp_folder),
-#         metric_folder=metric_dir,
-#         aggregator_metric_folder=aggregator_metric_dir,
-#     )
-
-#     metric_main_path = exp_folder / metric_dir
-#     metric_main_path.mkdir(parents=True, exist_ok=True)
-
-#     nuboard_file.save_nuboard_file(nuboard_filename)
-#     print('Building experiment folders...DONE!')
-
-#     return exp_folder.name
+# import logging
+# # 配置日志记录
+# logging.basicConfig(level=logging.ERROR, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 def main_simulation(planner, scenario):
@@ -100,18 +77,17 @@ def main_simulation(planner, scenario):
     # Begin simulation
     simulation_runner = SimulationRunner(simulation, planner)
     report, trajectory = simulation_runner.fy_run()
-    
+
     if report.succeeded:
         print("--- Successfully ran simulation.")
         simulation_runner.print_trajectory(trajectory)
     else:
         print("--- Failed Simulation.\n '%s'", report.error_message)
-    
+
     print('Finished running simulations!')
 
 
-def create_scenario_from_carla():
-    pass
+
 
 def main(args):
 
@@ -130,19 +106,6 @@ def main(args):
     # begin testing
     print('Running simulations...')
     main_simulation(planner, scenario)
-
-def creat_nuplan_scenario(args):
-    map_version = "nuplan-maps-v1.0"
-    scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
-    builder = NuPlanScenarioBuilder(args.data_path, args.map_path, None, None, map_version, scenario_mapping=scenario_mapping)
-    if args.load_test_set:
-        params = yaml.safe_load(open('test_scenario.yaml', 'r'))
-        scenario_filter = ScenarioFilter(**params)
-    else:
-        scenario_filter = ScenarioFilter(*get_filter_parameters(args.scenarios_per_type))
-    worker = SingleMachineParallelExecutor(use_process_pool=False)
-    return builder.get_scenarios(scenario_filter, worker)[0]
-
 
 
 if __name__ == "__main__":

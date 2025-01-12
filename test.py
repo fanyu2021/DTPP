@@ -7,6 +7,7 @@ from tqdm import tqdm
 from planner import Planner
 from common_utils import *
 warnings.filterwarnings("ignore") 
+import os
 
 from nuplan.planning.simulation.planner.idm_planner import IDMPlanner
 from nuplan.planning.simulation.planner.simple_planner import SimplePlanner
@@ -34,6 +35,8 @@ from nuplan.planning.simulation.simulation import Simulation
 from nuplan.planning.simulation.simulation_setup import SimulationSetup
 from nuplan.planning.nuboard.nuboard import NuBoard
 from nuplan.planning.nuboard.base.data_class import NuBoardFile
+
+import dtpp_data_path as dpp
 
 
 def build_simulation_experiment_folder(output_dir, simulation_dir, metric_dir, aggregator_metric_dir):
@@ -167,7 +170,10 @@ def main(args):
     # parameters
     experiment_name = args.test_type  # [open_loop_boxes, closed_loop_nonreactive_agents, closed_loop_reactive_agents]
     job_name = 'DTPP_planner'
-    experiment_time = datetime.datetime.now()
+    experiment_time = datetime.datetime.now() 
+    # 范雨：注意这里的格式是带空格的 2025-01-10 12:54:56.314238 ，在某些系统中无法创建这样的目录文件，
+    # 所以需要改为下面的格式: 2025-01-10 12:54:56.314238
+    experiment_time = experiment_time.strftime("%Y-%m-%d_%H-%M-%S.%f")
     experiment = f"{experiment_name}/{job_name}/{experiment_time}"  
     output_dir = f"testing_log/{experiment}"
     simulation_dir = "simulation"
@@ -219,15 +225,19 @@ def main(args):
 
 
 if __name__ == "__main__":
+    dpath = dpp.dtpp_data_path()
+    # 获取当前工作目录
+    current_dir = os.getcwd()
+    print(f"\033[32m ---Current working directory: {current_dir} \033[0m")
     parser = argparse.ArgumentParser()
     # parser.add_argument('--data_path', type=str)
-    parser.add_argument('--data_path', type=str, default='/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-v1.1_test/data/cache/test')
-    parser.add_argument('--map_path', type=str, default='/media/xph123/DATA/f_tmp/DTPP_datasets/nuplan-maps-v1.0/maps')
-    parser.add_argument('--model_path', type=str, default='/home/xph123/fanyu/E2E/DTPP/base_model/base_model.pth')
+    parser.add_argument('--data_path', type=str, default=dpath+'nuplan-v1.1_test/data/cache/test')
+    parser.add_argument('--map_path', type=str, default=dpath+'nuplan-maps-v1.0/maps')
+    parser.add_argument('--model_path', type=str, default=os.path.join(current_dir,'base_model/base_model.pth'))
     parser.add_argument('--test_type', type=str, default='closed_loop_reactive_agents')
     parser.add_argument('--load_test_set', action='store_true')
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--scenarios_per_type', type=int, default=20)
+    parser.add_argument('--scenarios_per_type', type=int, default=200)
     args = parser.parse_args()
 
     main(args)

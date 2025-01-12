@@ -10,6 +10,8 @@ from scenario_tree_prediction import Encoder, Decoder
 from torch.utils.data import DataLoader
 from train_utils import *
 
+import dtpp_data_path as ddp
+
 
 def train_epoch(data_loader, encoder, decoder, optimizer):
     epoch_loss = [] # 用于存储每个批次（batch）的损失值
@@ -205,14 +207,15 @@ def model_training(args):
 
 
 if __name__ == "__main__":
+    dpath = ddp.dtpp_data_path()
     # Arguments
     parser = argparse.ArgumentParser(description='Training')
     parser.add_argument('--name', type=str, help='log name', default="DTPP_training")
     parser.add_argument('--seed', type=int, help='fix random seed', default=3407)
     # parser.add_argument('--train_set', type=str, help='path to training data')
-    parser.add_argument('--train_set', type=str, help='path to training data', default='/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data/train')
+    parser.add_argument('--train_set', type=str, help='path to training data', default=dpath+'processed_data/train')
     # parser.add_argument('--valid_set', type=str, help='path to validation data')
-    parser.add_argument('--valid_set', type=str, help='path to validation data', default='/media/xph123/DATA/f_tmp/DTPP_datasets/processed_data/val')
+    parser.add_argument('--valid_set', type=str, help='path to validation data', default=dpath+'processed_data/val')
 
     parser.add_argument('--num_neighbors', type=int, help='number of neighbor agents to predict', default=10)
     parser.add_argument('--num_candidates', type=int, help='number of max candidate trajectories', default=30)
