@@ -3,13 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from common_utils import *
 
-from nuplan.planning.simulation.path.path import AbstractPath
-from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, STATIC_OBJECT_TYPES
-from nuplan.planning.simulation.planner.utils.breadth_first_search import BreadthFirstSearch
-from nuplan.common.maps.abstract_map_objects import RoadBlockGraphEdgeMapObject
-from nuplan.common.maps.maps_datatypes import SemanticMapLayer, TrafficLightStatusData, TrafficLightStatusType
-from nuplan.planning.simulation.planner.ml_planner.transform_utils import transform_predictions_to_states
-from nuplan.planning.metrics.utils.expert_comparisons import principal_value
+# from nuplan.planning.simulation.path.path import AbstractPath
+# from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, STATIC_OBJECT_TYPES
+# from nuplan.planning.simulation.planner.utils.breadth_first_search import BreadthFirstSearch
+# from nuplan.common.maps.abstract_map_objects import RoadBlockGraphEdgeMapObject
+# from nuplan.common.maps.maps_datatypes import SemanticMapLayer, TrafficLightStatusData, TrafficLightStatusType
+# from nuplan.planning.simulation.planner.ml_planner.transform_utils import transform_predictions_to_states
+# from nuplan.planning.metrics.utils.expert_comparisons import principal_value
 
 def check_path(path):
     refine_path = [path[0]]

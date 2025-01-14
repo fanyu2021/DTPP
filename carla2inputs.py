@@ -2,8 +2,8 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-01-10 12:24:03
-LastEditTime: 2025-01-10 14:59:31
-LastEditors: 范雨
+LastEditTime: 2025-01-14 10:11:42
+LastEditors: fanyu fantiming@yeah.net
 Description: 
 '''
 
@@ -65,5 +65,9 @@ def create_scenario_from_carla():
     pass
 
 def create_planner_input_from_carla(actors):
+    pass
+
+def create_model_input_from_carla(actors):
+    
     
                               

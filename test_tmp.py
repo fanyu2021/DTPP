@@ -35,7 +35,7 @@ from nuplan.planning.simulation.simulation_setup import SimulationSetup
 # from nuplan.planning.nuboard.nuboard import NuBoard
 # from nuplan.planning.nuboard.base.data_class import NuBoardFile
 
-from carla2nuplan_utils import *
+from carla2inputs import *
 
 # import carla
 # from agents.navigation.behavior_agent import BehaviorAgent

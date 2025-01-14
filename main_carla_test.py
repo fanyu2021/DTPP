@@ -35,7 +35,7 @@ import argparse
 
 
 from dtpp_planner import DTPPPlanner
-from carla2nuplan_utils import *
+from carla2inputs import *
 
 # 初始化 Pygame
 pygame.init()
@@ -273,8 +273,84 @@ def motion_planning(conn):
         conn.send((current_local_frenet_path_opt, match_point_list_, path_s, path_l))
         # print("***motion planning time cost:", time.time() - start_time)
 
+def motion_planning_e2e(conn):
+    """
+    端到端规划
+    """
+    model_inputs = create_model_input_from_carla()
+    trajectory = planner.compute_planner_trajectory(current_input=model_inputs)
+    conn.send(trajectory)  # Todo(fanyu):发送规划结果给主进程
 
 
+def set_ego_vehicle(world, All_spawn_points):
+    model3_bp = world.get_blueprint_library().find('vehicle.tesla.model3')
+    model3_bp.set_attribute('color', '255,88,0')
+    model3_spawn_point = All_spawn_points[259]
+    # print(model3_spawn_point)
+    # model3_spawn_point.location = model3_spawn_point.location + carla.Location(x=-100, y=0, z=0)
+    model3_actor = world.spawn_actor(model3_bp, model3_spawn_point)  # type: carla.Vehicle
+    # 定义轮胎特性
+    # wheel_f = carla.WheelPhysicsControl()  # type: carla.WheelPhysicsControl
+    # 定义车辆特性
+    physics_control = carla.VehiclePhysicsControl()  # type: carla.VehiclePhysicsControl
+    physics_control.mass = 1412  # 质量kg
+    model3_actor.apply_physics_control(physics_control)
+    return model3_spawn_point,model3_actor
+
+def generate_static_vehicles(world):
+    # 静止车辆1
+    obs_vehicle_bp1 = world.get_blueprint_library().find('vehicle.tesla.model3')
+    obs_vehicle_bp1.set_attribute('color', '0,0,255')
+    obs_spawn_point1 = carla.Transform()
+    obs_spawn_point1.location = carla.Location(x=174.01, y=147.61, z=0.3)
+    obs_spawn_point1.rotation = carla.Rotation(yaw=91)
+    obs_actor1 = world.spawn_actor(obs_vehicle_bp1, obs_spawn_point1)  # type: carla.Vehicle
+
+    # 静止车辆2
+    obs_vehicle_bp2 = world.get_blueprint_library().find('vehicle.audi.tt')
+    obs_vehicle_bp2.set_attribute('color', '0,255,0')
+    obs_spawn_point2 = carla.Transform()
+    obs_spawn_point2.location = carla.Location(x=105.86, y=189.11, z=0.3)
+    obs_spawn_point2.rotation = carla.Rotation(yaw=90)
+    obs_actor2 = world.spawn_actor(obs_vehicle_bp2, obs_spawn_point2)  # type: carla.Vehicle
+
+    # 静止车辆3
+    obs_vehicle_bp3 = world.get_blueprint_library().find('vehicle.audi.tt')
+    obs_vehicle_bp3.set_attribute('color', '0,255,0')
+    obs_spawn_point3 = carla.Transform()
+    obs_spawn_point3.location = carla.Location(x=105.86, y=194.11, z=0.3)
+    obs_spawn_point3.rotation = carla.Rotation(yaw=90)
+    obs_actor3 = world.spawn_actor(obs_vehicle_bp3, obs_spawn_point3)  # type: carla.Vehicle
+    return obs_actor1, obs_actor2, obs_actor3
+
+def generate_dynamic_vehicles(world, All_spawn_points, model3_spawn_point):
+    obs_dy_vehicle_bp1 = world.get_blueprint_library().find('vehicle.tesla.model3')
+    obs_dy_vehicle_bp1.set_attribute('color', '0,0,255')
+    obs_dy_spawn_point1 = carla.Transform()
+    obs_dy_spawn_point1.location = carla.Location(x=192.31, y=10, z=0.3)
+    obs_dy_spawn_point1.rotation = model3_spawn_point.rotation
+    dobs_actor = world.spawn_actor(obs_dy_vehicle_bp1, obs_dy_spawn_point1)  # type: carla.Vehicle
+    agent = BehaviorAgent(dobs_actor, "normal")
+    destination = All_spawn_points[48].location
+    agent.set_destination(destination)
+    agent.set_target_speed(30.0)
+    return agent, dobs_actor
+
+def get_local_refline(model3_actor, global_frenet_path):
+    transform = model3_actor.get_transform()
+    vehicle_loc = transform.location  # 获取车辆的当前位置
+    match_point_list, _ = planning_utils.find_match_points(xy_list=[(vehicle_loc.x, vehicle_loc.y)],
+                                                        frenet_path_node_list=global_frenet_path,
+                                                        is_first_run=True,  # 寻找车辆起点的匹配点就属于第一次运行，
+                                                        pre_match_index=0)  # 没有上一次运行得到的索引，索引自然是全局路径的起点
+    local_frenet_path = planning_utils.sampling(match_point_list[0], global_frenet_path)
+    local_frenet_path_opt = planning_utils.smooth_reference_line(local_frenet_path)
+    return vehicle_loc,match_point_list,local_frenet_path_opt
+
+def get_frenet_sl(vehicle_loc, local_frenet_path_opt):
+    cur_s_map = planning_utils.cal_s_map_fun(local_frenet_path_opt, origin_xy=(vehicle_loc.x, vehicle_loc.y))
+    cur_path_s, cur_path_l = planning_utils.cal_s_l_fun(local_frenet_path_opt, local_frenet_path_opt, cur_s_map)
+    return cur_path_s, cur_path_l
 
 if __name__ == '__main__':
     
@@ -287,6 +363,7 @@ if __name__ == '__main__':
     parser.add_argument('--load_test_set', action='store_true')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--scenarios_per_type', type=int, default=1)
+    parser.add_argument('--use_e2e', type=bool, default=False)
     args = parser.parse_args()
     
         # create an animation window to observe our ego-vehicle's behaviour.
@@ -304,7 +381,12 @@ if __name__ == '__main__':
     """
     
     conn1, conn2 = multiprocessing.Pipe()
-    p1 = multiprocessing.Process(target=motion_planning, args=(conn2,))
+    p1 = None
+    if args.use_e2e:
+        """ 构建模型的输入 """
+        p1 = multiprocessing.Process(target=motion_planning_e2e, args=(conn2,))
+    else:
+        p1 = multiprocessing.Process(target=motion_planning, args=(conn2,))
     p1.start() # 开始线程
 
     client = carla.Client("localhost", 2000)
@@ -318,18 +400,7 @@ if __name__ == '__main__':
 
     All_spawn_points = amap.get_spawn_points()  # 获取所有carla提供的actor产生位置
     """# 定义一个ego-vehicle"""
-    model3_bp = world.get_blueprint_library().find('vehicle.tesla.model3')
-    model3_bp.set_attribute('color', '255,88,0')
-    model3_spawn_point = All_spawn_points[259]
-    # print(model3_spawn_point)
-    # model3_spawn_point.location = model3_spawn_point.location + carla.Location(x=-100, y=0, z=0)
-    model3_actor = world.spawn_actor(model3_bp, model3_spawn_point)  # type: carla.Vehicle
-    # 定义轮胎特性
-    # wheel_f = carla.WheelPhysicsControl()  # type: carla.WheelPhysicsControl
-    # 定义车辆特性
-    physics_control = carla.VehiclePhysicsControl()  # type: carla.VehiclePhysicsControl
-    physics_control.mass = 1412  # 质量kg
-    model3_actor.apply_physics_control(physics_control)
+    model3_spawn_point, model3_actor = set_ego_vehicle(world, All_spawn_points)
     """为车辆配备一个障碍物的传感器"""
     # obs_detector = Obstacle_detector(ego_vehicle=model3_actor, world=world)  # 实例化传感器
     # obs_detector.create_sensor()  # 在仿真环境中生成传感器
@@ -361,40 +432,10 @@ if __name__ == '__main__':
 
     """设置静止车辆"""
     # 静止车辆1
-    obs_vehicle_bp1 = world.get_blueprint_library().find('vehicle.tesla.model3')
-    obs_vehicle_bp1.set_attribute('color', '0,0,255')
-    obs_spawn_point1 = carla.Transform()
-    obs_spawn_point1.location = carla.Location(x=174.01, y=147.61, z=0.3)
-    obs_spawn_point1.rotation = carla.Rotation(yaw=91)
-    obs_actor = world.spawn_actor(obs_vehicle_bp1, obs_spawn_point1)  # type: carla.Vehicle
-
-    # 静止车辆2
-    obs_vehicle_bp2 = world.get_blueprint_library().find('vehicle.audi.tt')
-    obs_vehicle_bp2.set_attribute('color', '0,255,0')
-    obs_spawn_point2 = carla.Transform()
-    obs_spawn_point2.location = carla.Location(x=105.86, y=189.11, z=0.3)
-    obs_spawn_point2.rotation = carla.Rotation(yaw=90)
-    obs_actor2 = world.spawn_actor(obs_vehicle_bp2, obs_spawn_point2)  # type: carla.Vehicle
-
-    # 静止车辆3
-    obs_vehicle_bp3 = world.get_blueprint_library().find('vehicle.audi.tt')
-    obs_vehicle_bp3.set_attribute('color', '0,255,0')
-    obs_spawn_point3 = carla.Transform()
-    obs_spawn_point3.location = carla.Location(x=105.86, y=194.11, z=0.3)
-    obs_spawn_point3.rotation = carla.Rotation(yaw=90)
-    obs_actor2 = world.spawn_actor(obs_vehicle_bp3, obs_spawn_point3)  # type: carla.Vehicle
+    sobs_actor1, sobs_actor2, sobs_actor3 = generate_static_vehicles(world)
 
     # 运动车辆
-    obs_dy_vehicle_bp1 = world.get_blueprint_library().find('vehicle.tesla.model3')
-    obs_dy_vehicle_bp1.set_attribute('color', '0,0,255')
-    obs_dy_spawn_point1 = carla.Transform()
-    obs_dy_spawn_point1.location = carla.Location(x=192.31, y=10, z=0.3)
-    obs_dy_spawn_point1.rotation = model3_spawn_point.rotation
-    obs_actor1 = world.spawn_actor(obs_dy_vehicle_bp1, obs_dy_spawn_point1)  # type: carla.Vehicle
-    agent = BehaviorAgent(obs_actor1, "normal")
-    destination = All_spawn_points[48].location
-    agent.set_destination(destination)
-    agent.set_target_speed(30.0)
+    agent, dobs_actor = generate_dynamic_vehicles(world, All_spawn_points, model3_spawn_point)
     
     
     """路径规划"""    
@@ -406,9 +447,9 @@ if __name__ == '__main__':
     torch.set_grad_enabled(False)
     planner = DTPPPlanner(model_path=args.model_path, device=args.device)
 
-    print('Running simulations...')
+    print('Running simulations...')    
     
-    
+
     # 1. 规划路径，输出的每个路径点是一个元组形式[(wp, road_option), ...]第一个是元素是carla中的路点，第二个是当前路点规定的一些车辆行为
     pathway = global_route_plan.search_path_way(origin=model3_spawn_point.location,
                                                 destination=All_spawn_points[48].location)
@@ -418,17 +459,9 @@ if __name__ == '__main__':
     global_frenet_path = planning_utils.waypoint_list_2_target_path(pathway)
 
     # 3.提取局部路径
-    transform = model3_actor.get_transform()
-    vehicle_loc = transform.location  # 获取车辆的当前位置
-    match_point_list, _ = planning_utils.find_match_points(xy_list=[(vehicle_loc.x, vehicle_loc.y)],
-                                                           frenet_path_node_list=global_frenet_path,
-                                                           is_first_run=True,  # 寻找车辆起点的匹配点就属于第一次运行，
-                                                           pre_match_index=0)  # 没有上一次运行得到的索引，索引自然是全局路径的起点
-    local_frenet_path = planning_utils.sampling(match_point_list[0], global_frenet_path)
-    local_frenet_path_opt = planning_utils.smooth_reference_line(local_frenet_path)
+    vehicle_loc, match_point_list, local_frenet_path_opt = get_local_refline(model3_actor, global_frenet_path)
     # 计算参考线的s, l
-    cur_s_map = planning_utils.cal_s_map_fun(local_frenet_path_opt, origin_xy=(vehicle_loc.x, vehicle_loc.y))
-    cur_path_s, cur_path_l = planning_utils.cal_s_l_fun(local_frenet_path_opt, local_frenet_path_opt, cur_s_map)
+    cur_path_s, cur_path_l = get_frenet_sl(vehicle_loc, local_frenet_path_opt)
 
     """整车参数设定"""
     vehicle_para = (1.015, 2.910 - 1.015, 1412, -148970, -82204, 1537)      # 车辆特性(侧偏刚度、转动惯量...)
@@ -448,7 +481,7 @@ if __name__ == '__main__':
     spectator = world.get_spectator()
     count = 1  # 控制规划器和控制器相对频率
     main_process_start_time = time.time()
-    plan_count = 50
+    plan_count = 100
     # control_count = 10
     pred_ts = 0.2
     while True:
@@ -459,7 +492,7 @@ if __name__ == '__main__':
         spectator.set_transform(carla.Transform(transform.location + carla.Location(z=40), carla.Rotation(pitch=-90)))
         vehicle_loc = transform.location  # 获取车辆的当前位置
 
-        obs_actor1.apply_control(agent.run_step())
+        dobs_actor.apply_control(agent.run_step())
         """获取局部路径，局部路径规划的频率是控制的1/100"""
         if count % plan_count == 0:  # 这里表示控制器执行100次规划器执行1次
             cur_time = time.time()
@@ -492,7 +525,7 @@ if __name__ == '__main__':
             没有找到合适的传感器，暂时用车联网的方法,设定合适的感知范围，获取周围环境中的actor，这里我们人为制造actor作为障碍物
             再到后面可以考虑用多传感器数据融合来做动态和静态障碍物的融合感知
             """
-            possible_static_obs, possible_dynamic_obs = get_actor_from_world(model3_actor, dis_limitation=100)
+            possible_static_obs, possible_dynamic_obs = get_actor_from_world(model3_actor, dis_limitation=50)
             # 提取障碍物的位置信息
             static_obs_info = []
             for obs_v, dis in possible_static_obs:

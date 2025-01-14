@@ -1,3 +1,11 @@
+'''
+Author: fanyu fantiming@yeah.net
+Date: 2024-07-17 16:39:38
+LastEditors: fanyu fantiming@yeah.net
+LastEditTime: 2025-01-14 10:16:23
+FilePath: \DTPP_fy\planner.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 import math
 import time
 import matplotlib.pyplot as plt
@@ -7,10 +15,10 @@ from obs_adapter import *
 from trajectory_tree_planner import TreePlanner
 from scenario_tree_prediction import *
 
-from nuplan.planning.simulation.observation.observation_type import DetectionsTracks
-from nuplan.planning.simulation.planner.abstract_planner import AbstractPlanner, PlannerInitialization, PlannerInput
-from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory
-from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
+# from nuplan.planning.simulation.observation.observation_type import DetectionsTracks
+# from nuplan.planning.simulation.planner.abstract_planner import AbstractPlanner, PlannerInitialization, PlannerInput
+# from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory
+# from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
 
 
 class Planner(AbstractPlanner):

@@ -9,3 +9,4 @@ __pycache__/
 testing_log/
 training_log/
 *.log
+*.pyc
