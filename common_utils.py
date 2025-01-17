@@ -2,37 +2,74 @@ import time
 import pathlib
 import pandas as pd
 
-from nuplan.planning.metrics.metric_engine import MetricsEngine
-from nuplan.common.actor_state.vehicle_parameters import get_pacifica_parameters
-from nuplan.planning.metrics.aggregator.weighted_average_metric_aggregator import WeightedAverageMetricAggregator
-from nuplan.planning.metrics.evaluation_metrics.common.drivable_area_compliance import DrivableAreaComplianceStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.driving_direction_compliance import DrivingDirectionComplianceStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_lane_change import EgoLaneChangeStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_is_comfortable import EgoIsComfortableStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_acceleration import EgoAccelerationStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_expert_l2_error import EgoExpertL2ErrorStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_expert_l2_error_with_yaw import EgoExpertL2ErrorWithYawStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_jerk import EgoJerkStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_lat_acceleration import EgoLatAccelerationStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_lat_jerk import EgoLatJerkStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_lon_acceleration import EgoLonAccelerationStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_lon_jerk import EgoLonJerkStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_mean_speed import EgoMeanSpeedStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_progress_along_expert_route import EgoProgressAlongExpertRouteStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_yaw_acceleration import EgoYawAccelerationStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_yaw_rate import EgoYawRateStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_average_l2_error_within_bound import PlannerExpertAverageL2ErrorStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.ego_is_making_progress import EgoIsMakingProgressStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.no_ego_at_fault_collisions import EgoAtFaultCollisionStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_average_heading_error_within_bound import PlannerExpertAverageHeadingErrorStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_final_heading_error_within_bound import PlannerExpertFinalHeadingErrorStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_final_l2_error_within_bound import PlannerExpertFinalL2ErrorStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.planner_miss_rate_within_bound import PlannerMissRateStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.speed_limit_compliance import SpeedLimitComplianceStatistics
-from nuplan.planning.metrics.evaluation_metrics.common.time_to_collision_within_bound import TimeToCollisionStatistics
+# from nuplan.planning.metrics.metric_engine import MetricsEngine
+# from nuplan.common.actor_state.vehicle_parameters import get_pacifica_parameters
+# from nuplan.planning.metrics.aggregator.weighted_average_metric_aggregator import WeightedAverageMetricAggregator
+# from nuplan.planning.metrics.evaluation_metrics.common.drivable_area_compliance import DrivableAreaComplianceStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.driving_direction_compliance import DrivingDirectionComplianceStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_lane_change import EgoLaneChangeStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_is_comfortable import EgoIsComfortableStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_acceleration import EgoAccelerationStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_expert_l2_error import EgoExpertL2ErrorStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_expert_l2_error_with_yaw import EgoExpertL2ErrorWithYawStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_jerk import EgoJerkStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_lat_acceleration import EgoLatAccelerationStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_lat_jerk import EgoLatJerkStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_lon_acceleration import EgoLonAccelerationStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_lon_jerk import EgoLonJerkStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_mean_speed import EgoMeanSpeedStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_progress_along_expert_route import EgoProgressAlongExpertRouteStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_yaw_acceleration import EgoYawAccelerationStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_yaw_rate import EgoYawRateStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_average_l2_error_within_bound import PlannerExpertAverageL2ErrorStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.ego_is_making_progress import EgoIsMakingProgressStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.no_ego_at_fault_collisions import EgoAtFaultCollisionStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_average_heading_error_within_bound import PlannerExpertAverageHeadingErrorStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_final_heading_error_within_bound import PlannerExpertFinalHeadingErrorStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.planner_expert_final_l2_error_within_bound import PlannerExpertFinalL2ErrorStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.planner_miss_rate_within_bound import PlannerMissRateStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.speed_limit_compliance import SpeedLimitComplianceStatistics
+# from nuplan.planning.metrics.evaluation_metrics.common.time_to_collision_within_bound import TimeToCollisionStatistics
 
 
 ### Parameters
+
+class VehicleParameters:
+    def __init__(self,
+                 vehicle_name: str,
+                 vehicle_type: str,
+                 width: float,
+                 front_length: float,
+                 rear_length: float,
+                 wheel_base: float,
+                 cog_position_from_rear_axle: float,
+                 height: float):
+        self.vehicle_name = vehicle_name
+        self.vehicle_type = vehicle_type
+        self.width = width
+        self.front_length = front_length
+        self.rear_length = rear_length
+        self.wheel_base = wheel_base
+        self.cog_position_from_rear_axle = cog_position_from_rear_axle
+        self.height = height
+
+
+def get_pacifica_parameters() -> VehicleParameters:
+    """
+    :return VehicleParameters containing parameters of Pacifica Vehicle.
+    """
+    return VehicleParameters(
+        vehicle_name="pacifica",
+        vehicle_type="gen1",
+        width=1.1485 * 2.0,
+        front_length=4.049,
+        rear_length=1.127,
+        wheel_base=3.089,
+        cog_position_from_rear_axle=1.67,
+        height=1.777,
+    )
+
+
 T = 8 # [s] planning horizon
 DT = 0.1 # [s] time interval
 LENGTH = get_pacifica_parameters().front_length # [m] vehicle front length

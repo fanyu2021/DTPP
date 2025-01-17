@@ -8,4 +8,4 @@ Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查�
 '''
 
 def dtpp_data_path():
-    return "/media/fy/05ECDDC768760AE8/workgac/0data/DTPP_datasets/"
+    return "/media/xph123/DATA/f_tmp/DTPP_datasets/"

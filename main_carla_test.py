@@ -21,9 +21,11 @@ import time
 import math
 import numpy as np
 
-from em_planner import planning_utils, path_planning
+from planner import planning_utils, path_planning
 from controller.controller import Vehicle_control
-from em_planner.global_planning import global_path_planner
+# from planner.global_planning import global_path_planner
+from planner import global_path_planner
+# from planner.global_planning import global_path_planner
 from sensors.Sensors_detector_lib import Obstacle_detector
 from agents.navigation.behavior_agent import BehaviorAgent
 
@@ -277,9 +279,16 @@ def motion_planning_e2e(conn):
     """
     端到端规划
     """
-    model_inputs = create_model_input_from_carla()
-    trajectory = planner.compute_planner_trajectory(current_input=model_inputs)
-    conn.send(trajectory)  # Todo(fanyu):发送规划结果给主进程
+    while True:
+                # 接收主进程发送的用于局部路径规划的数据，如果没有收到数据子进程会阻塞
+        possible_static_obs_, possible_dynamic_obs_, \
+            vehicle_loc_, pred_loc_, vehicle_v_, vehicle_a_, global_frenet_path_, match_point_list_ = conn.recv()
+        carla_scenario = CarlaScenario(possible_static_obs_, possible_dynamic_obs_, vehicle_loc_,
+                                       pred_loc=pred_loc_, vehicle_v=vehicle_v_, vehicle_a=vehicle_a_,
+                                       global_frenet_path=global_frenet_path_, match_point_list=match_point_list_)
+        model_inputs = create_model_input_from_carla(carla_scenario)
+        trajectory = planner.compute_planner_trajectory(current_input=model_inputs)
+        conn.send(trajectory)  # Todo(fanyu):发送规划结果给主进程
 
 
 def set_ego_vehicle(world, All_spawn_points):
@@ -506,6 +515,7 @@ if __name__ == '__main__':
             #                  size=0.05, color=carla.Color(0, 0, 0), life_time=0)
 
             vehicle_loc = model3_actor.get_transform().location
+            vehicle_rot = model3_actor.get_transform().rotation
             vehicle_v = model3_actor.get_velocity()
             vehicle_a = model3_actor.get_acceleration()
             # 基于笛卡尔坐标系预测ts秒过后车辆的位置，以预测点作为规划起点
@@ -538,7 +548,9 @@ if __name__ == '__main__':
                 dynamic_obs_info.append((obs_loc.x, obs_loc.y, _dis, _speed))
                 # print("dynamic_obs_id:", obs_v.type_id, "dis:", dis)
             # 将当前的道路状况和车辆信息发送给规划器进行规划控制
-            conn1.send((static_obs_info, dynamic_obs_info, (vehicle_loc.x, vehicle_loc.y), (pred_x, pred_y),
+            conn1.send((static_obs_info, dynamic_obs_info, 
+                        (vehicle_loc.x, vehicle_loc.y, vehicle_rot.yaw * math.pi/180.0), 
+                        (pred_x, pred_y, pred_fi),
                         (vehicle_v.x, vehicle_v.y), (vehicle_a.x, vehicle_a.y),
                         global_frenet_path, match_point_list))
 

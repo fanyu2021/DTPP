@@ -1,17 +1,35 @@
+'''
+Author: fanyu fantiming@yeah.net
+Date: 2024-07-17 16:39:38
+LastEditors: 范雨
+LastEditTime: 2025-01-17 17:57:49
+FilePath: \DTPP_fy\planner.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 import math
 import time
 import matplotlib.pyplot as plt
-from shapely import Point, LineString
+from shapely.geometry import Point, LineString
 from planner_utils import *
 from obs_adapter import *
 from trajectory_tree_planner import TreePlanner
 from scenario_tree_prediction import *
 
-from nuplan.planning.simulation.observation.observation_type import DetectionsTracks
-from nuplan.planning.simulation.planner.abstract_planner import AbstractPlanner, PlannerInitialization, PlannerInput
-from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory
-from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
+from collections import deque
+from typing import Deque, List, Optional, Tuple, Type, Union, Iterable
 
+from dataclasses import dataclass
+
+from carla2inputs import *
+
+  
+@dataclass       
+class PlannerInput:
+    @classmethod
+    def __init__(self, iteration, history, traffic_light_data):
+        self.iteration = iteration
+        self.history = history
+        self.traffic_light_data = traffic_light_data
 
 class DTPPPlanner(AbstractPlanner):
     def __init__(self, model_path, device):
@@ -24,8 +42,8 @@ class DTPPPlanner(AbstractPlanner):
     def name(self) -> str:
         return "DTPP Planner"
     
-    def observation_type(self):
-        return DetectionsTracks
+    # def observation_type(self):
+    #     return DetectionsTracks
 
     def initialize(self, initialization: PlannerInitialization):
         self._map_api = initialization.map_api
@@ -67,7 +85,8 @@ class DTPPPlanner(AbstractPlanner):
 
         # Construct input features
         start_time = time.perf_counter()
-        features = observation_adapter(history, traffic_light_data, self._map_api, self._route_roadblock_ids, self._device)
+        # features = observation_adapter(history, traffic_light_data, self._map_api, self._route_roadblock_ids, self._device)
+        features = create_feature_from_carla(carla_scenario=carla_scenario, history_buffer=history, map_api=self._map_api)
 
         # Get starting block
         starting_block = None

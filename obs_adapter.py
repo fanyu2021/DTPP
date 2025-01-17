@@ -1,4 +1,4 @@
-import torch
+# import torch
 import numpy as np
 
 from nuplan.common.actor_state.state_representation import Point2D
