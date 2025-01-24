@@ -8,7 +8,7 @@
 import math
 import numpy as np
 import cvxopt
-from planner import planning_utils
+from carla_planner import planning_utils
 import time
 
 

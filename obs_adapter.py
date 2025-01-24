@@ -180,6 +180,7 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     time_stamps = past_time_stamps
     agents = past_tracked_objects
 
+    # 取出最后一个ego状态作为anchor状态，并二维张量转换为一维张量，然后进行一次深拷贝
     anchor_ego_state = ego_history[-1, :].squeeze().clone()
     ego_tensor = convert_absolute_quantities_to_relative(ego_history, anchor_ego_state)
     agent_history = filter_agents_tensor(agents, reverse=True)
@@ -297,6 +298,7 @@ def get_neighbor_vector_set_map(
 
 def map_process(anchor_state, coords, traffic_light_data, map_features, max_elements, max_points, interpolation_method):
     # convert data to tensor list
+    # 车辆当前位置
     anchor_state_tensor = torch.tensor([anchor_state.x, anchor_state.y, anchor_state.heading], dtype=torch.float32)
     list_tensor_data = {}
 

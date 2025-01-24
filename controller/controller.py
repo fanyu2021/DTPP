@@ -6,7 +6,7 @@ import cvxopt
 import numpy as np
 import math
 import carla
-from planner.planning_utils import cal_heading_kappa
+from carla_planner.planning_utils import cal_heading_kappa
 from collections import deque
 
 print_flag = False

@@ -12,7 +12,7 @@
 """
 
 import numpy as np
-from planner import planning_utils
+from carla_planner import planning_utils
 
 def construct_ST_graph_and_planning(path_s: list, ego_pos: int, ego_speed: int, ego_acc: int,
                                     obs_pos: list, obs_speed: list,

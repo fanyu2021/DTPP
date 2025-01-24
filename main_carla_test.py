@@ -21,10 +21,10 @@ import time
 import math
 import numpy as np
 
-from planner import planning_utils, path_planning
+from carla_planner import planning_utils, path_planning
 from controller.controller import Vehicle_control
 # from planner.global_planning import global_path_planner
-from planner import global_path_planner
+from carla_planner.global_planning import global_path_planner
 # from planner.global_planning import global_path_planner
 from sensors.Sensors_detector_lib import Obstacle_detector
 from agents.navigation.behavior_agent import BehaviorAgent
@@ -38,6 +38,7 @@ import argparse
 
 from dtpp_planner import DTPPPlanner
 from carla2inputs import *
+from nuplan_adapter.nuplan_data_process import create_model_input_from_carla
 
 # 初始化 Pygame
 pygame.init()
@@ -148,7 +149,7 @@ def motion_planning(conn):
     while 1:
         # 接收主进程发送的用于局部路径规划的数据，如果没有收到数据子进程会阻塞
         possible_static_obs_, possible_dynamic_obs_, \
-            vehicle_loc_, pred_loc_, vehicle_v_, vehicle_a_, global_frenet_path_, match_point_list_ = conn.recv()
+            vehicle_loc_, pred_loc_, local_frenet_path_opt_, global_frenet_path_, match_point_list_, road_ids_ = conn.recv()
         start_time = time.time()
         # 1.确定预测点在全局路径上的投影点索引
         match_point_list_, _ = planning_utils.find_match_points(xy_list=[pred_loc_],
@@ -165,7 +166,7 @@ def motion_planning(conn):
         local_frenet_path_opt_ = planning_utils.smooth_reference_line(local_frenet_path_)
 
         # 计算以车辆当前位置为原点的s_map
-        s_map = planning_utils.cal_s_map_fun(local_frenet_path_opt_, origin_xy=vehicle_loc_)
+        s_map = planning_utils.cal_s_map_fun(local_frenet_path_opt_, origin_xy=vehicle_loc_[0:2])
         # path_s, path_l = planning_utils.cal_s_l_fun(local_frenet_path_opt_, local_frenet_path_opt_, s_map)
         # 提取障碍物的位置信息
         if len(possible_static_obs_) != 0 and possible_static_obs_[0][-1] <= 30:
@@ -194,7 +195,7 @@ def motion_planning(conn):
             Len_obs = 3  # 障碍物车辆长度
             V_obs = obs_dis_speed_list[0][1]  # 障碍物的速度
             Dis = obs_dis_speed_list[0][0]  # 障碍物距离自车的距离
-            V_ego = math.sqrt(vehicle_v_[0] ** 2 + vehicle_v_[1] ** 2)
+            V_ego = math.sqrt(vehicle_loc_[3] ** 2 + vehicle_loc_[4] ** 2)
             delta_v = V_ego - V_obs
             # print("V_ego, V_obs", V_ego, V_obs)
             # 相遇开始的时间和相遇结束的时间
@@ -226,8 +227,8 @@ def motion_planning(conn):
         # 计算规划起点的l对s的导数和偏导数
         l_list, _, _, _, l_ds_list, _, l_dds_list = \
             planning_utils.cal_s_l_deri_fun(xy_list=[pred_loc_],
-                                            V_xy_list=[vehicle_v_],
-                                            a_xy_list=[vehicle_a_],
+                                            V_xy_list=[vehicle_loc_[3:5]],
+                                            a_xy_list=[vehicle_loc_[5:]],
                                             local_path_xy_opt=local_frenet_path_opt_,
                                             origin_xy=pred_loc_)
         # 从起点开始沿着s进行横向和纵向采样，然后动态规划,相邻点之间依据五次多项式进一步采样，间隔一米
@@ -279,15 +280,22 @@ def motion_planning_e2e(conn):
     """
     端到端规划
     """
+    carla_scenario_input : CarlaScenarioInput = CarlaScenarioInput()
     while True:
-                # 接收主进程发送的用于局部路径规划的数据，如果没有收到数据子进程会阻塞
+        # 接收主进程发送的用于局部路径规划的数据，如果没有收到数据子进程会阻塞
         possible_static_obs_, possible_dynamic_obs_, \
-            vehicle_loc_, pred_loc_, vehicle_v_, vehicle_a_, global_frenet_path_, match_point_list_ = conn.recv()
-        carla_scenario = CarlaScenario(possible_static_obs_, possible_dynamic_obs_, vehicle_loc_,
-                                       pred_loc=pred_loc_, vehicle_v=vehicle_v_, vehicle_a=vehicle_a_,
-                                       global_frenet_path=global_frenet_path_, match_point_list=match_point_list_)
-        model_inputs = create_model_input_from_carla(carla_scenario)
-        trajectory = planner.compute_planner_trajectory(current_input=model_inputs)
+            vehicle_loc_, pred_loc_, local_frenet_path_opt_, global_frenet_path_, match_point_list_, road_ids_ = conn.recv()
+        carla_scenario = CarlaScenario(possible_dynamic_obs = possible_static_obs_, 
+                                       possible_static_obs = possible_dynamic_obs_, 
+                                       vehicle_loc = vehicle_loc_,
+                                       pred_loc = pred_loc_, 
+                                       local_frenet_path_opt = local_frenet_path_opt_,
+                                       global_frenet_path = global_frenet_path_, 
+                                       match_point_list = match_point_list_,
+                                       road_ids = road_ids_)
+        
+        carla_scenario_input = create_model_input_from_carla(carla_scenario=carla_scenario, carla_scenario_input=carla_scenario_input)
+        trajectory = planner.compute_planner_trajectory(carla_scenario_input=carla_scenario_input)
         conn.send(trajectory)  # Todo(fanyu):发送规划结果给主进程
 
 
@@ -372,8 +380,12 @@ if __name__ == '__main__':
     parser.add_argument('--load_test_set', action='store_true')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--scenarios_per_type', type=int, default=1)
-    parser.add_argument('--use_e2e', type=bool, default=False)
+    parser.add_argument('--use_e2e', type=bool, default=True)
     args = parser.parse_args()
+    
+        # initialize planner
+    torch.set_grad_enabled(False)
+    planner = DTPPPlanner(model_path=args.model_path, device=args.device)
     
         # create an animation window to observe our ego-vehicle's behaviour.
     pygame.init()  # init pygame
@@ -452,9 +464,6 @@ if __name__ == '__main__':
     1.将 carla 中的场景数据转化为 nuplan的 NuPlanScenario 数据结构
     """
     
-    # initialize planner
-    torch.set_grad_enabled(False)
-    planner = DTPPPlanner(model_path=args.model_path, device=args.device)
 
     print('Running simulations...')    
     
@@ -463,6 +472,12 @@ if __name__ == '__main__':
     pathway = global_route_plan.search_path_way(origin=model3_spawn_point.location,
                                                 destination=All_spawn_points[48].location)
     debug = world.debug  # type: carla.DebugHelper
+    road_ids:set = set()
+    for path_item in pathway:
+        road_ids.add(path_item[0].road_id)
+        # print(f'--- road_id:{path_item[0].road_id}, path item: {path_item[0]}, type: {path_item[1]}')
+        debug.draw_point(path_item[0].transform.location,
+                 size=0.05, color=carla.Color(255, 255, 0), life_time=0,)
 
     # 2. 将路径点构成的路径转换为[(x, y, theta, kappa], ...]的形式
     global_frenet_path = planning_utils.waypoint_list_2_target_path(pathway)
@@ -538,21 +553,46 @@ if __name__ == '__main__':
             possible_static_obs, possible_dynamic_obs = get_actor_from_world(model3_actor, dis_limitation=50)
             # 提取障碍物的位置信息
             static_obs_info = []
+            static_actor_list = []
+            dynamic_actor_list = []
             for obs_v, dis in possible_static_obs:
                 obs_loc = obs_v.get_transform().location
+                heading = obs_v.get_transform().rotation.yaw * math.pi / 180.0
+                vx = obs_v.get_velocity().x
+                vy = obs_v.get_velocity().y
+                width = 2 * obs_v.bounding_box.extent.x
+                length = 2 * obs_v.bounding_box.extent.y
                 static_obs_info.append((obs_loc.x, obs_loc.y, dis))
                 # print("static_obs_id:", obs_v.type_id, "dis:", dis)
+                static_actor_list.append((obs_v.id, obs_loc.x, obs_loc.y, vx, vy, heading, width, length, obs_v.type_id))
             dynamic_obs_info = []
             for _obs_v, _dis, _speed in possible_dynamic_obs:
                 obs_loc = _obs_v.get_transform().location
+                heading = _obs_v.get_transform().rotation.yaw * math.pi / 180.0
+                vx = _obs_v.get_velocity().x
+                vy = _obs_v.get_velocity().y
+                width = 2 * _obs_v.bounding_box.extent.x
+                length = 2 * _obs_v.bounding_box.extent.y
                 dynamic_obs_info.append((obs_loc.x, obs_loc.y, _dis, _speed))
                 # print("dynamic_obs_id:", obs_v.type_id, "dis:", dis)
+                dynamic_actor_list.append((_obs_v.id, obs_loc.x, obs_loc.y, heading, vx, vy, width, length, _obs_v.type_id))
+            # print("static_obs_info:", static_obs_info)
+            # print("dynamic_obs_info:", dynamic_obs_info)
+            # print("static_actor_list:", static_actor_list)
+            # print("dynamic_actor_list:", dynamic_actor_list)
             # 将当前的道路状况和车辆信息发送给规划器进行规划控制
-            conn1.send((static_obs_info, dynamic_obs_info, 
-                        (vehicle_loc.x, vehicle_loc.y, vehicle_rot.yaw * math.pi/180.0), 
-                        (pred_x, pred_y, pred_fi),
-                        (vehicle_v.x, vehicle_v.y), (vehicle_a.x, vehicle_a.y),
-                        global_frenet_path, match_point_list))
+            if args.use_e2e:
+                conn1.send((static_actor_list, dynamic_actor_list, 
+                            (vehicle_loc.x, vehicle_loc.y, vehicle_rot.yaw * math.pi/180.0, vehicle_v.x, vehicle_v.y, vehicle_a.x, vehicle_a.y), 
+                            (pred_x, pred_y, pred_fi),
+                            local_frenet_path_opt,
+                            global_frenet_path, match_point_list, road_ids))                
+            else:    
+                conn1.send((static_obs_info, dynamic_obs_info, 
+                            (vehicle_loc.x, vehicle_loc.y, vehicle_rot.yaw * math.pi/180.0, vehicle_v.x, vehicle_v.y, vehicle_a.x, vehicle_a.y), 
+                            (pred_x, pred_y, pred_fi),
+                            local_frenet_path_opt,
+                            global_frenet_path, match_point_list, road_ids))
 
             if count != plan_count:  # 第一个循环周期，因为有初始阶段规划好的局部路径，第二个周期的规划还未计算完成，一旦执行接收数据，会阻塞主进程
                 cur_local_frenet_path_opt, match_point_list, cur_path_s, cur_path_l = conn1.recv()  # 新规划出的轨迹

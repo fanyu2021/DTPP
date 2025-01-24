@@ -7,7 +7,7 @@ import carla
 import networkx as nx
 import numpy as np
 from enum import Enum
-from planner import planning_utils
+from carla_planner import planning_utils
 
 
 class RoadOption(Enum):

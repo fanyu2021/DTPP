@@ -5,7 +5,7 @@ import itertools
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from shapely import Point, LineString
+from shapely.geometry import Point, LineString
 from shapely.geometry.base import CAP_STYLE
 from path_planner import calc_spline_course
 from bezier_path import calc_4points_bezier_path
@@ -14,7 +14,18 @@ from spline_planner import SplinePlanner
 from torch.nn.utils.rnn import pad_sequence
 from scenario_tree_prediction import *
 from planner_utils import *
-from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
+# from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
+from carla2inputs import EgoState
+from typing import List
+
+
+def path_to_linestring(path: List[EgoState]) -> LineString:
+    """
+    Converts a List of StateSE2 into a LineString
+    :param path: path to be converted
+    :return: LineString.
+    """
+    return LineString([(point.x, point.y) for point in path])
 
 
 class TrajTree:
@@ -185,7 +196,7 @@ class TreePlanner:
     def get_candidate_edges(self, starting_block):
         edges = []
         edges_distance = []
-        self.ego_point = (self.ego_state.rear_axle.x, self.ego_state.rear_axle.y)
+        self.ego_point = (self.ego_state.x, self.ego_state.y)
 
         for edge in starting_block.interior_edges:
             edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
@@ -196,7 +207,8 @@ class TreePlanner:
         if len(edges) == 0:
             edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
 
-        return edges
+        # return edges
+        return []
 
     def generate_paths(self, routes):
         ego_state = self.ego_state.rear_axle.x, self.ego_state.rear_axle.y, self.ego_state.rear_axle.heading
@@ -337,23 +349,28 @@ class TreePlanner:
         self.candidate_lane_edge_ids = candidate_lane_edge_ids
         self.route_roadblocks = route_roadblocks
         self.traffic_light = traffic_light
-        object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
-                        TrackedObjectType.CZONE_SIGN, TrackedObjectType.TRAFFIC_CONE,
-                        TrackedObjectType.GENERIC_OBJECT]
-        objects = observation.tracked_objects.get_tracked_objects_of_types(object_types)
+        # object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
+        #                 TrackedObjectType.CZONE_SIGN, TrackedObjectType.TRAFFIC_CONE,
+        #                 TrackedObjectType.GENERIC_OBJECT]
+        # objects = observation.tracked_objects.get_tracked_objects_of_types(object_types)
         self.obstacles = []
-        for obj in objects:
-            if obj.tracked_object_type == TrackedObjectType.VEHICLE:
-                if obj.velocity.magnitude() < 0.1:
-                    self.obstacles.append(obj.box)
-            else:
-                self.obstacles.append(obj.box)
+        # for obj in objects:
+        #     if obj.tracked_object_type == TrackedObjectType.VEHICLE:
+        #         if obj.velocity.magnitude() < 0.1:
+        #             self.obstacles.append(obj.box)
+        #     else:
+        #         self.obstacles.append(obj.box)
+        
+        for id, obj in observation:
+            if np.sqrt(obj.x**2 + obj.y**2) < 0.1:
+                self.obstacles.append(obj)
+            
 
         # initial tree (root node)
         # x, y, heading, velocity, acceleration, curvature, time
         state = torch.tensor([[0, 0, 0, # x, y, heading 
-                               ego_state.dynamic_car_state.rear_axle_velocity_2d.x,
-                               ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]], dtype=torch.float32)
+                               ego_state.vx,
+                               ego_state.ax, 0, 0]], dtype=torch.float32)
         tree = TrajTree(state, None, 0)
 
         # environment encoding
