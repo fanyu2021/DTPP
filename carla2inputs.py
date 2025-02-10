@@ -2,7 +2,7 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-01-10 12:24:03
-LastEditTime: 2025-01-23 20:22:57
+LastEditTime: 2025-02-10 12:52:19
 LastEditors: 范雨
 Description: 
 '''
@@ -81,7 +81,8 @@ class CarlaScenario:
                  vehicle_loc, pred_loc, 
                  local_frenet_path_opt,
                  global_frenet_path, match_point_list, road_ids):
-        self.timestamp = time.time()
+        # 获取当前系统时间戳，微秒
+        self.timestamp = time.time()*1e6
         self._set_ego_state(vehicle_loc)
         self.ego_state.timestamp = self.timestamp
         self._set_agents_state(possible_static_obs, possible_dynamic_obs)
@@ -99,12 +100,15 @@ class CarlaScenario:
           只提取 3 种类型的障碍物：车辆，行人，自行车 （目前这里传入都是车辆）
         """
         self.agents = []
+        agent = AgentState()
         for actor in possible_static_obs:
+            agent.type = "vehicle"
             # print("--- sactor.id:", actor)
             agent = AgentState.set_agent_state_from_actor(actor)
             self.agents.append(agent)
             
         for actor in possible_dynamic_obs:
+            agent.type = "vehicle"
             # print("--- dactor.id:", actor)
             agent = AgentState.set_agent_state_from_actor(actor)
             self.agents.append(agent)
@@ -251,10 +255,10 @@ class CarlaScenario:
 
 @dataclass
 class CarlaScenarioInput:
-    time_series: Deque = field(default_factory=lambda: deque(maxlen=21))
+    time_series: Deque = field(default_factory=lambda: deque(maxlen=22))
     iteration: int = 0
     traffic_light_data: List = field(default_factory=list)
-    ego_states: Deque = field(default_factory=lambda: deque(maxlen=21))
+    ego_states: Deque = field(default_factory=lambda: deque(maxlen=22))
     map_lanes: Deque = field(default_factory=lambda: deque(maxlen=40))
     route_lines: Deque = field(default_factory=lambda: deque(maxlen=10))
     agents_map: Dict[int, List[AgentState]] = field(default_factory=dict)

@@ -2,7 +2,7 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-01-17 17:25:28
-LastEditTime: 2025-01-24 16:18:33
+LastEditTime: 2025-02-10 12:55:42
 LastEditors: 范雨
 Description: 
 '''
@@ -33,11 +33,11 @@ def create_model_input_from_carla(carla_scenario: CarlaScenario, carla_scenario_
     carla_scenario_input.road_ids = carla_scenario.road_ids
     # TODO(fanyu): size
     # 如果 ego_states size < 21, 将尾部填充相同的数据
-    if len(carla_scenario_input.ego_states) < 21:
+    if len(carla_scenario_input.ego_states) < 22:
         # carla_scenario_input.ego_states.extend([carla_scenario.ego_state] * (21 - len(carla_scenario_input.ego_states)))
         state = carla_scenario.ego_state
-        for _ in range(21 - len(carla_scenario_input.ego_states)):            
-            state.timestamp += 1
+        for _ in range(22 - len(carla_scenario_input.ego_states)):            
+            state.timestamp += 1000
             carla_scenario_input.ego_states.append(state)
     
     for agent in carla_scenario.agents:
@@ -45,7 +45,7 @@ def create_model_input_from_carla(carla_scenario: CarlaScenario, carla_scenario_
         is_in_range = np.sqrt((agent.x - carla_scenario.ego_state.x) ** 2 + \
                                 (agent.y - carla_scenario.ego_state.y) ** 2) <= 100
         if agent.id not in carla_scenario_input.agents_map and is_in_range:
-            carla_scenario_input.agents_map[agent.id] = Deque(maxlen=21)
+            carla_scenario_input.agents_map[agent.id] = Deque(maxlen=22)
             carla_scenario_input.agents_map[agent.id].appendleft(agent)
         elif agent.id not in carla_scenario_input.agents_map and not is_in_range:
             continue
@@ -571,6 +571,7 @@ def sampled_past_ego_states_to_tensor(past_ego_states: Deque[EgoState]) -> torch
     :param past_ego_states: The ego states to convert.
     :return: The converted tensor.
     """
+    print(f'------ size of past_ego_states: {len(past_ego_states)}')
     output = torch.zeros((len(past_ego_states), EgoInternalIndex.dim()), dtype=torch.float32)
     for i in range(0, len(past_ego_states), 1):
         output[i, EgoInternalIndex.x()] = past_ego_states[i].x
@@ -692,7 +693,7 @@ def sampled_tracked_objects_to_tensor_list(past_tracked_objects : dict):
     track_token_ids = {}
 
     # for i in range(len(past_tracked_objects)):
-    rem_dim = 21
+    rem_dim = 22
     for i in range(rem_dim):
     # for k, agent_states in past_tracked_objects.items():
         tensorized, track_token_ids, agent_types = extract_agent_tensor(i, past_tracked_objects, track_token_ids, object_types)
@@ -1096,10 +1097,13 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     ego_history = past_ego_states
     time_stamps = past_time_stamps
     agents = past_tracked_objects
+    
+    print(f'------ time stamps: {time_stamps}')
 
     anchor_ego_state = ego_history[-1, :].squeeze().clone()
     ego_tensor = convert_absolute_quantities_to_relative(ego_history, anchor_ego_state)
     agent_history = filter_agents_tensor(agents, reverse=True)
+    print(f'------- agent_history size = {len(agent_history)}')
     agent_types = tracked_objects_types[-1]
 
     if agent_history[-1].shape[0] == 0:
@@ -1108,14 +1112,17 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     else:
         local_coords_agent_states = []
         padded_agent_states = pad_agent_states(agent_history, reverse=True)
+        print(f'------- padded_agent_states length = {len(padded_agent_states)}, type = {type(padded_agent_states)}')
 
         for agent_state in padded_agent_states:
             local_coords_agent_states.append(convert_absolute_quantities_to_relative(agent_state, anchor_ego_state, 'agent'))
     
         # Calculate yaw rate
         yaw_rate_horizon = compute_yaw_rate_from_state_tensors(padded_agent_states, time_stamps)
+        print(f'--- yaw_rate_horizon.shape = {yaw_rate_horizon.shape}')
     
         agents_tensor = pack_agents_tensor(local_coords_agent_states, yaw_rate_horizon)
+        print(f'--- agents_tensor.shape = {agents_tensor.shape}')
 
     agents = torch.zeros((num_agents, agents_tensor.shape[0], agents_tensor.shape[-1]+3), dtype=torch.float32)
 
@@ -1153,7 +1160,7 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
 
 def create_feature_from_carla(carla_scenario_input: CarlaScenarioInput, device):
     num_agents = 20
-    past_time_steps = 21
+    past_time_steps = 22
     map_features = ['LANE', 'ROUTE_LANES', 'CROSSWALK'] # name of map features to be extracted.
     max_elements = {'LANE': 40, 'ROUTE_LANES': 10, 'CROSSWALK': 5} # maximum number of elements to extract per feature layer.
     max_points = {'LANE': 50, 'ROUTE_LANES': 50, 'CROSSWALK': 30} # maximum number of points per feature to extract per feature layer.
@@ -1162,7 +1169,6 @@ def create_feature_from_carla(carla_scenario_input: CarlaScenarioInput, device):
 
     ego_states = carla_scenario_input.ego_states # Past ego state including the current
     agents_map = carla_scenario_input.agents_map # Past observations including the current
-
     ego_agent_past = sampled_past_ego_states_to_tensor(ego_states)
     past_tracked_objects_tensor_list, past_tracked_objects_types = sampled_tracked_objects_to_tensor_list(agents_map)
     print(f'-------- ego_agent_past.size: {len(carla_scenario_input.ego_states)}')

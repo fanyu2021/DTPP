@@ -659,7 +659,7 @@ if __name__ == '__main__':
             pygame.display.flip()
 
     """可视化速度变化和航向变化"""
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
     # plt.figure(1)
     # plt.plot(direction)
