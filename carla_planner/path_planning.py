@@ -60,7 +60,7 @@ def cal_proj_point(s, pre_match_index, frenet_path_opt: list, s_map: list):
     """
     # 确定s在s_map中的索引
     start_s_match_index = pre_match_index
-    while s_map[start_s_match_index + 1] < s:  # 这里存在一点问题，如果动态规划采样点过长，会超出s_map的范围(在frenet_2_x_y_theta_kappa中解决)
+    while s_map[min(start_s_match_index + 1, len(s_map)-1)] < s:  # 这里存在一点问题，如果动态规划采样点过长，会超出s_map的范围(在frenet_2_x_y_theta_kappa中解决)
         start_s_match_index += 1
         # if start_s_match_index == (len(s_map) - 1):
         #     break
@@ -262,12 +262,12 @@ def cal_lmin_lmax(dp_path_s, dp_path_l, obs_s_list, obs_l_list, obs_length, obs_
         """
         if path_l < obs_l_list[i]:
             # print("决策为向左绕过障碍物")
-            for j in range(obs_s_min_index, obs_s_max_index + 1):
+            for j in range(obs_s_min_index, min(len(lmax),obs_s_max_index + 1)):
                 # l_max[j]为所有决策为向右绕过障碍物的l边界的最小值
                 lmax[j] = min(lmax[j], obs_l_list[i] - obs_width / 2)
         else:
             # print("决策为向右绕过障碍物")
-            for j in range(obs_s_min_index, obs_s_max_index + 1):
+            for j in range(obs_s_min_index, min(len(lmin), obs_s_max_index + 1)):
                 # l_min[j]为所有决策为向左绕过障碍物的l边界的最大值
                 lmin[j] = max(lmin[j], obs_l_list[i] + obs_width / 2)
     return lmin, lmax

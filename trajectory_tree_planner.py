@@ -187,6 +187,7 @@ class TreePlanner:
             candidate_paths.append((path_len, dist_to_ego.min(), path_polyline))
 
         # trim paths by length
+        print(f'---candidate_paths---: {candidate_paths}')
         max_path_len = max([v[0] for v in candidate_paths])
         acceptable_path_len = MAX_LEN/2 if max_path_len > MAX_LEN/2 else max_path_len
         paths = [v for v in candidate_paths if v[0] >= acceptable_path_len]
@@ -198,44 +199,51 @@ class TreePlanner:
         edges_distance = []
         self.ego_point = (self.ego_state.x, self.ego_state.y)
 
-        for edge in starting_block.interior_edges:
-            edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
-            if edge.polygon.distance(Point(self.ego_point)) < 4:
-                edges.append(edge)
+        # for edge in starting_block.interior_edges:
+        #     edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
+        #     if edge.polygon.distance(Point(self.ego_point)) < 4:
+        #         edges.append(edge)
         
         # if no edge is close to ego, use the closest edge
-        if len(edges) == 0:
-            edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
+        # if len(edges) == 0:
+        #     edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
 
         # return edges
         return []
 
     def generate_paths(self, routes):
-        ego_state = self.ego_state.rear_axle.x, self.ego_state.rear_axle.y, self.ego_state.rear_axle.heading
+        ego_state = self.ego_state.x, self.ego_state.y, self.ego_state.heading
         
         # generate paths
         new_paths = []
         path_distance = []
-        for (path_len, dist, path_polyline) in routes:
-            if len(path_polyline) > 81:
-                sampled_index = np.array([5, 10, 15, 20]) * 4
-            elif len(path_polyline) > 61:
-                sampled_index = np.array([5, 10, 15]) * 4
-            elif len(path_polyline) > 41:
-                sampled_index = np.array([5, 10]) * 4
-            elif len(path_polyline) > 21:
-                sampled_index = [20]
-            else:
-                sampled_index = [1]
+        # for (path_len, dist, path_polyline) in routes:
+        # for path_polyline in routes:
+        path_polyline = list(routes)
+        if len(path_polyline) > 81:
+            sampled_index = np.array([5, 10, 15, 20]) * 4
+        elif len(path_polyline) > 61:
+            sampled_index = np.array([5, 10, 15]) * 4
+        elif len(path_polyline) > 41:
+            sampled_index = np.array([5, 10]) * 4
+        elif len(path_polyline) > 21:
+            sampled_index = [20]
+        else:
+            sampled_index = [1]
      
-            target_states = path_polyline[sampled_index].tolist()
-            for j, state in enumerate(target_states):
-                first_stage_path = calc_4points_bezier_path(ego_state[0], ego_state[1], ego_state[2], 
-                                                            state[0], state[1], state[2], 3, sampled_index[j])[0]
-                second_stage_path = path_polyline[sampled_index[j]+1:, :2]
-                path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
-                new_paths.append(path_polyline)  
-                path_distance.append(dist)   
+        print(f'---234 path_polyline---: {path_polyline}')
+        print(f'---234 path_polyline.type ---: {type(path_polyline)}')
+        print(f'---234 sampled_index---: {sampled_index}')
+        print(f'---234 len(path_polyline)---: {len(path_polyline)}')
+        print(f'---234 len(path_polyline[0])---: {len(path_polyline[0])}')
+        target_states = path_polyline[sampled_index].tolist()
+        for j, state in enumerate(target_states):
+            first_stage_path = calc_4points_bezier_path(ego_state[0], ego_state[1], ego_state[2], 
+                                                        state[0], state[1], state[2], 3, sampled_index[j])[0]
+            second_stage_path = path_polyline[sampled_index[j]+1:, :2]
+            path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
+            new_paths.append(path_polyline)  
+            path_distance.append(dist)   
 
         # evaluate paths
         candiate_paths = {}
@@ -343,7 +351,7 @@ class TreePlanner:
 
         return path
 
-    def plan(self, iteration, ego_state, env_inputs, starting_block, route_roadblocks, candidate_lane_edge_ids, traffic_light, observation, debug=False):
+    def plan(self, iteration, ego_state, env_inputs, carla_scenario_input, route_roadblocks, candidate_lane_edge_ids, traffic_light, observation, debug=False):
         # get environment information
         self.ego_state = ego_state
         self.candidate_lane_edge_ids = candidate_lane_edge_ids
@@ -360,9 +368,9 @@ class TreePlanner:
         #             self.obstacles.append(obj.box)
         #     else:
         #         self.obstacles.append(obj.box)
-        
-        for id, obj in observation:
-            if np.sqrt(obj.x**2 + obj.y**2) < 0.1:
+        # print(f'---363--- observation: {observation}')
+        for id, obj in observation.items():
+            if np.sqrt(obj[-1].vx**2 + obj[-1].vy**2) < 0.1:
                 self.obstacles.append(obj)
             
 
@@ -378,10 +386,13 @@ class TreePlanner:
         agent_states = env_inputs['neighbor_agents_past']
 
         # get candidate map lanes
-        edges = self.get_candidate_edges(starting_block)
-        candidate_paths = self.get_candidate_paths(edges)
+        # edges = self.get_candidate_edges(starting_block)
+        # candidate_paths = self.get_candidate_paths(edges)
+        candidate_paths = carla_scenario_input.route_lines
+        print(f'---385--- candidate_paths: {candidate_paths}')
         paths = self.generate_paths(candidate_paths)
-        self.speed_limit = edges[0].speed_limit_mps or self.target_speed
+        # self.speed_limit = edges[0].speed_limit_mps or self.target_speed
+        self.speed_limit = self.target_speed
         
         # expand tree
         tree.expand_children(paths, self.first_stage_horizon, self.speed_limit, self.planner)

@@ -38,6 +38,7 @@ class Encoder(nn.Module):
         ego = inputs['ego_agent_past'] # ego shape: torch.Size([1, 21, 7])
         neighbors = inputs['neighbor_agents_past'] # neighbors shape: torch.Size([1, 20, 21, 11])
         # actors shape: torch.Size([1, 21, 21, 5)
+        print(f'---41---ego shape: {ego.shape}, neighbors shape: {neighbors.shape}')
         actors = torch.cat([ego[:, None, :, :5], neighbors[..., :5]], dim=1)
 
         # agent encoding
@@ -50,7 +51,9 @@ class Encoder(nn.Module):
 
         # vector maps
         map_lanes = inputs['map_lanes']
-        map_crosswalks = inputs['map_crosswalks']
+        # TODO(fanyu): 这里的map_crosswalks 先屏蔽掉
+        # map_crosswalks = inputs['map_crosswalks']
+        map_crosswalks = torch.zeros(size=(1, 5, 30, 3)).to(device=ego.device)
 
         # map encoding
         encoded_map_lanes, lanes_mask = self.lane_encoder(map_lanes)

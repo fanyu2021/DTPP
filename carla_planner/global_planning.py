@@ -10,6 +10,7 @@ from enum import Enum
 from carla_planner import planning_utils
 
 
+
 class RoadOption(Enum):
     """
     RoadOption represents the possible topological configurations when moving from a segment of lane to others.
@@ -32,6 +33,10 @@ class global_path_planner(object):
         self._graph = nx.DiGraph()  # type: nx.DiGraph
         self._id_map = None
         self._road_to_edge = None
+        self._start_loc = None
+        self._end_loc = None
+        self._has_routing = False
+        self._path_way = []
 
         # initiate the planner
         self._build_topology()
@@ -39,6 +44,20 @@ class global_path_planner(object):
 
     def get_topology_and_graph_info(self):
         return self._topology, self._graph, self._id_map, self._road_to_edge
+    
+    def get_start_end_waypoint_by_node_id(self, start_node_id: int, end_node_id: int):
+        """
+        获取起点和终点的路点
+        param:  start_node_id: 起点所在边的左端点id
+                end_node_id:  终点所在边的左端点id
+        return: 起点和终点的路点
+
+        """
+        start_node_loc = carla.Location(x=self._graph.nodes[start_node_id]['vertex'][0], y=self._graph.nodes[start_node_id]['vertex'][1], z=self._graph.nodes[start_node_id]['vertex'][2])
+        destination_node_loc = carla.Location(x=self._graph.nodes[end_node_id]['vertex'][0], y=self._graph.nodes[end_node_id]['vertex'][1], z=self._graph.nodes[end_node_id]['vertex'][2])
+        return start_node_loc, destination_node_loc
+        
+        
 
     def _build_topology(self):
         """
@@ -231,7 +250,7 @@ class global_path_planner(object):
 
         return closest_index
 
-    def search_path_way(self, origin, destination):
+    def routing_search(self, origin, destination)->list:
         """
         得到完整的由waypoint构成的完整路径
         param:  origin: 起点，carla.Location类型
@@ -242,14 +261,14 @@ class global_path_planner(object):
         route = self._route_search(origin, destination)  # 获取A*的初步规划结果->list
         origin_wp = self._map.get_waypoint(origin)  # type: carla.Waypoint
         destination_wp = self._map.get_waypoint(destination)  # type: carla.Waypoint
-        path_way = []
+        # path_way = []
 
         # 第一段路径
         edge = self._graph.get_edge_data(route[0], route[1])
         path = [edge["entry_waypoint"]] + edge["path"] + [edge["exit_waypoint"]]
         clos_index = self._closest_index(origin_wp, path)
         for wp in path[clos_index:]:
-            path_way.append((wp, edge["type"]))
+            self._path_way.append((wp, edge["type"]))
 
         # 中间路径
         if len(route) > 3:  # 先判断是否有中间路径
@@ -257,7 +276,7 @@ class global_path_planner(object):
                 edge = self._graph.get_edge_data(route[index], route[index + 1])
                 path = edge["path"] + [edge["exit_waypoint"]]  # 每一段路段的终点是下一个路段的起点，所以这里不加起点
                 for wp in path:
-                    path_way.append((wp, edge["type"]))
+                    self._path_way.append((wp, edge["type"]))
 
         # 最后一段路径
         edge = self._graph.get_edge_data(route[-2], route[-1])
@@ -266,7 +285,48 @@ class global_path_planner(object):
         clos_index = self._closest_index(destination_wp, path)
         if clos_index != 0:  # 判断终点是否是当前路段的起点，如果不是，将后续的路点加入path_way;
             for wp in path[:clos_index + 1]:
-                path_way.append((wp, edge["type"]))
+                self._path_way.append((wp, edge["type"]))
         else:  # 如果是，后面的路段终点则在上个路段已经添加进path_way中，这里不进行重复操作
             pass
-        return path_way
+        self._start_loc = origin
+        self._end_loc = destination
+        self._has_routing = True
+        return self._path_way
+    
+    def draw_routing_result(self, plt):
+        if not self._has_routing:
+            raise RuntimeError("Please call routing first.")
+        vertexs = nx.get_node_attributes(self._graph, "vertex")
+        # print("vertex", vertexs)
+        # 将位置信息提取出来，字典类型{node: (x, y)}
+        pos = {}
+        for node in vertexs.keys():
+            pos.update({node: vertexs[node][0:2]})
+        # print(pos)
+        # path_way = self.search_path_way(origin, destination)
+        way_points = {'x': [], 'y': []} # 用于存储路径点的x和y坐标
+        for waypoint in self._path_way:
+            # print(f'---68---waypoint = {waypoint}')
+            way_points['x'].append(waypoint[0].transform.location.x)
+            way_points['y'].append(waypoint[0].transform.location.y)
+            
+        plt.figure(1)
+        plt.title("DTPP_Routing", fontsize=20, color='b', backgroundcolor='white', fontweight='bold', style='italic', family='Times New Roman', loc='center', pad=20, rotation=0)
+        nx.draw_networkx(self._graph, pos=pos, arrows=True, with_labels=True, node_size=50, width=1, font_size=12)
+        nx.draw_networkx_nodes(self._graph, pos=pos, nodelist=self._route_search(self._start_loc, self._end_loc), node_size=40, label="test_nodes", node_color='r')
+        
+        plt.scatter(way_points['x'], way_points['y'], c='b', marker='o', s=20)
+        # 着重画出起点和终点
+        plt.plot(self._start_loc.x, self._start_loc.y, 'ro', label="start", markersize=20)
+        plt.plot(self._end_loc.x, self._end_loc.y, 'yo', label="end", markersize=20)
+        # plt.show()
+        plt.savefig('DTPP_Routing.png')
+        
+    def draw_all_spawn_points(self, plt, All_spawn_points):
+        debug_all_spawn_points = {'x': [], 'y': []}
+        for i, tsf in enumerate(All_spawn_points):
+            # world.debug.draw_string(i.location, 'X', color=carla.Color(r=255, g=0, b=0), life_time=100)
+            debug_all_spawn_points['x'].append(tsf.location.x)
+            debug_all_spawn_points['y'].append(tsf.location.y)
+            plt.text(tsf.location.x+0.5, tsf.location.y+0.5, str(i), fontsize=8, color='r')
+        plt.scatter(debug_all_spawn_points['x'], debug_all_spawn_points['y'], s=40, c='r', marker='x', label='All spawn points')

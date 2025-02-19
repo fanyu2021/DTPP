@@ -115,7 +115,7 @@ def find_match_points(xy_list: list, frenet_path_node_list: list, is_first_run: 
 
     else:
         for index_xy in range(input_xy_length):  # 为每一个点寻找匹配点
-            x, y = xy_list[index_xy]
+            x, y= xy_list[index_xy][0], xy_list[index_xy][1]
             """
             这里有一个疑问，如果在某个周期内做执行匹配算法时有多个目标点对应多个匹配点，那下一个周期要使用的上个周期的匹配点应该选哪一个比较合适
             这里直接选取的是pre_match_index[index_xy]，index_xy还是新的

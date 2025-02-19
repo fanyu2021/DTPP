@@ -2,7 +2,7 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-01-10 12:24:03
-LastEditTime: 2025-02-10 12:52:19
+LastEditTime: 2025-02-13 10:19:08
 LastEditors: 范雨
 Description: 
 '''
@@ -48,6 +48,9 @@ class EgoState:
     ay : float = 0.0
     timestamp : float = 0.0
     
+    def searialize(self) -> List[float]:
+        return [self.x, self.y, self.heading]
+    
 
     
 @dataclass
@@ -64,6 +67,7 @@ class AgentState:
     width : float = 0.0
     length : float = 0.0
     type : str = ""
+    timestamp : float = 0.0
     
     @staticmethod
     def set_agent_state_from_actor(actor: Any) -> 'AgentState':
@@ -71,7 +75,7 @@ class AgentState:
         # return AgentState(id=actor.id, x=actor.get_location().x, y=actor.get_location().y, heading=actor.get_transform().rotation.yaw*np.pi/180,
         #                   vx=actor.get_velocity().x, vy=actor.get_velocity().y, 
         #                   width=2*actor.bounding_box.extent.x, length=2*actor.bounding_box.extent.y, type=actor.type_id)
-        return AgentState(id=actor[0], x = actor[1], y = actor[2], heading = actor[3], vx = actor[4], vy = actor[5], width = actor[6], length = actor[7], type = actor[8])
+        return AgentState(id=actor[0], x = actor[1], y = actor[2], heading = actor[3], vx = actor[4], vy = actor[5], width = actor[6], length = actor[7], type = actor[8], timestamp = actor[9])
 @dataclass
 class CarlaScenario:
     # possible_static_obs_, possible_dynamic_obs_, \
@@ -271,7 +275,7 @@ def extract_carla_data(actors):
         state = {
             'id': actor.id,
             'location': actor.get_location(),
-           'velocity': actor.get_velocity(),
+            'velocity': actor.get_velocity(),
             'orientation': actor.get_transform().rotation
         }
         vehicle_states.append(state)

@@ -879,3 +879,31 @@ class TimePoint:
         """
         return TimeDuration.from_us(int(self.time_us - time_point.time_us))
 
+@dataclass
+class VectorFeatureLayerMapping:
+    """
+    Dataclass for associating VectorFeatureLayers with SemanticMapLayers for extracting map object polygons.
+    """
+
+    _semantic_map_layer_mapping = {
+        VectorFeatureLayer.STOP_LINE: SemanticMapLayer.STOP_LINE,
+        VectorFeatureLayer.CROSSWALK: SemanticMapLayer.CROSSWALK,
+    }
+
+    @classmethod
+    def available_polygon_layers(cls) -> List[VectorFeatureLayer]:
+        """
+        List of VectorFeatureLayer for which mapping is supported.
+        :return List of available layers.
+        """
+        return list(cls._semantic_map_layer_mapping.keys())
+
+    @classmethod
+    def semantic_map_layer(cls, feature_layer: VectorFeatureLayer) -> SemanticMapLayer:
+        """
+        Returns associated SemanticMapLayer for feature extraction, if exists.
+        :param feature_layer: specified VectorFeatureLayer to look up.
+        :return associated SemanticMapLayer.
+        """
+        return cls._semantic_map_layer_mapping[feature_layer]
+

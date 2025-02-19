@@ -126,6 +126,8 @@ class BehaviorAgent(BasicAgent):
             if target_wpt.road_id != ego_wpt.road_id or \
                     target_wpt.lane_id != ego_wpt.lane_id + lane_offset:
                 next_wpt = self._local_planner.get_incoming_waypoint_and_direction(steps=5)[0]
+                if not next_wpt: # TODO(fanyu): 增加保护机制
+                    continue
                 if target_wpt.road_id != next_wpt.road_id or \
                         target_wpt.lane_id != next_wpt.lane_id + lane_offset:
                     continue
@@ -344,7 +346,7 @@ class BehaviorAgent(BasicAgent):
                 control = self.car_following_manager(vehicle, distance)
 
         # 3: Intersection behavior
-        elif self._incoming_waypoint.is_junction and (self._incoming_direction in [RoadOption.LEFT, RoadOption.RIGHT]):
+        elif not self._incoming_waypoint and self._incoming_waypoint.is_junction and (self._incoming_direction in [RoadOption.LEFT, RoadOption.RIGHT]):
             target_speed = min([
                 self._behavior.max_speed,
                 self._speed_limit - 5])

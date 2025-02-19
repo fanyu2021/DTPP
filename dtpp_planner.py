@@ -2,7 +2,7 @@
 Author: fanyu fantiming@yeah.net
 Date: 2024-07-17 16:39:38
 LastEditors: 范雨
-LastEditTime: 2025-01-23 12:28:49
+LastEditTime: 2025-02-14 16:07:51
 FilePath: \DTPP_fy\planner.py
 Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 '''
@@ -33,6 +33,7 @@ class DTPPPlanner():
         self._N_points = int(T/DT)
         self._model_path = model_path
         self._device = device
+        self.initialize()
 
     def name(self) -> str:
         return "DTPP Planner"
@@ -40,7 +41,7 @@ class DTPPPlanner():
     # def observation_type(self):
     #     return DetectionsTracks
 
-    def initialize(self, initialization: CarlaScenarioInput):
+    def initialize(self):
         # self._map_api = initialization.map_api
         # self._goal = initialization.mission_goal
         # self._route_roadblock_ids = initialization.route_roadblock_ids
@@ -91,15 +92,15 @@ class DTPPPlanner():
         cur_point = (ego_state.x, ego_state.y)
         closest_distance = math.inf
 
-        for block in self._route_roadblocks:
-            for edge in block.interior_edges:
-                distance = edge.polygon.distance(Point(cur_point))
-                if distance < closest_distance:
-                    starting_block = block
-                    closest_distance = distance
+        # for block in self._route_roadblocks:
+        #     for edge in block.interior_edges:
+        #         distance = edge.polygon.distance(Point(cur_point))
+        #         if distance < closest_distance:
+        #             starting_block = block
+        #             closest_distance = distance
 
-            if np.isclose(closest_distance, 0):
-                break
+        #     if np.isclose(closest_distance, 0):
+        #         break
         
         # Get traffic light lanes
         traffic_light_lanes = []
@@ -111,13 +112,15 @@ class DTPPPlanner():
                 print(f"Todo(fanyu): add traffic light lane connector {id_} to candidate lane edge ids")
 
         # Tree policy planner
-        try:
-            plan = self._trajectory_planner.plan(iteration, ego_state, features, starting_block, self._route_roadblocks, 
+        # try:
+        for k, v in features.items():
+            print(f'---116---features {k}: {v}')    
+        plan = self._trajectory_planner.plan(iteration, ego_state, features, carla_scenario_input, self._route_roadblocks, 
                                              self._candidate_lane_edge_ids, traffic_light_lanes, observation)
-        except Exception as e:
-            print("Error in planning")
-            print(e)
-            plan = np.zeros((self._N_points, 3))
+        # except Exception as e:
+        #     print("Error in planning")
+        #     print(e)
+        #     plan = np.zeros((self._N_points, 3))
             
         # Convert relative poses to absolute states and wrap in a trajectory object
         states = transform_predictions_to_states(plan, carla_scenario_input.ego_states, self._future_horizon, DT)
