@@ -110,15 +110,9 @@ class GlobalRoutePlanner(object):
                 w = wp1.next(self._sampling_resolution)[0]
                 while w.transform.location.distance(endloc) > self._sampling_resolution:
                     seg_dict['path'].append(w)
-                    next_ws = w.next(self._sampling_resolution)
-                    if len(next_ws) == 0:
-                        break
-                    w = next_ws[0]
+                    w = w.next(self._sampling_resolution)[0]
             else:
-                next_wps = wp1.next(self._sampling_resolution)
-                if len(next_wps) == 0:
-                    continue
-                seg_dict['path'].append(next_wps[0])
+                seg_dict['path'].append(wp1.next(self._sampling_resolution)[0])
             self._topology.append(seg_dict)
 
     def _build_graph(self):
@@ -233,7 +227,7 @@ class GlobalRoutePlanner(object):
                 if not segment['entry'].is_junction:
                     next_waypoint, next_road_option, next_segment = None, None, None
 
-                    if waypoint.right_lane_marking and waypoint.right_lane_marking.lane_change & carla.LaneChange.Right and not right_found:
+                    if waypoint.right_lane_marking.lane_change & carla.LaneChange.Right and not right_found:
                         next_waypoint = waypoint.get_right_lane()
                         if next_waypoint is not None \
                                 and next_waypoint.lane_type == carla.LaneType.Driving \
@@ -246,7 +240,7 @@ class GlobalRoutePlanner(object):
                                     exit_waypoint=next_waypoint, intersection=False, exit_vector=None,
                                     path=[], length=0, type=next_road_option, change_waypoint=next_waypoint)
                                 right_found = True
-                    if waypoint.left_lane_marking and waypoint.left_lane_marking.lane_change & carla.LaneChange.Left and not left_found:
+                    if waypoint.left_lane_marking.lane_change & carla.LaneChange.Left and not left_found:
                         next_waypoint = waypoint.get_left_lane()
                         if next_waypoint is not None \
                                 and next_waypoint.lane_type == carla.LaneType.Driving \

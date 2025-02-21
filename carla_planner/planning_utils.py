@@ -236,13 +236,11 @@ def sampling(match_point_index: int, frenet_path_node_list: list, back_length=10
             back_length: 投影点向后采样点数
             forward_length: 投影点向前采样点数
 
-    return: list类型， local_frenet_path = [node0, node1, node2, ...], node0 = (x0, y0, heading0, kappa0)
+    return: list类型， local_frenet_refline = [node0, node1, node2, ...], node0 = (x0, y0, heading0, kappa0)
     采样的规则是，在匹配点之前的B个点和匹配点之后的F个点,这个可以根据实际调整，做到精确和速度的平衡就好
     如果前向不够，则向后增加点；如果后向不够，则向前增加点。保持总长度为B+F，为了后面平滑算法统一处理
     """
-    local_frenet_path = []
-    back_length = 10
-    forward_length = 40
+    local_frenet_refline = []
     length_sum = back_length + forward_length
     if match_point_index < back_length:
         back_length = match_point_index
@@ -253,10 +251,10 @@ def sampling(match_point_index: int, frenet_path_node_list: list, back_length=10
         back_length = length_sum - forward_length
 
     # 返回这个区间的node
-    local_frenet_path = frenet_path_node_list[match_point_index - back_length: match_point_index] \
+    local_frenet_refline = frenet_path_node_list[match_point_index - back_length: match_point_index] \
                         + frenet_path_node_list[match_point_index: match_point_index + forward_length + 1]
 
-    return local_frenet_path
+    return local_frenet_refline
 
 
 def smooth_reference_line(local_frenet_path_xy: list,
@@ -437,10 +435,10 @@ def cal_projection_s_fun(local_path_opt: list, match_index_list: list, xy_list: 
     """
     projection_s_list = []
     for i in range(len(match_index_list)):
-        x, y, theta, kappa = local_path_opt[match_index_list[i]]
+        x, y, theta, kappa = local_path_opt[match_index_list[i]] # 匹配点
         d_v = np.array([xy_list[i][0] - x, xy_list[i][1] - y])  # 匹配点指向给定点的向量
-        tou_v = np.array([math.cos(theta), math.sin(theta)])  # 切线方向单位向量
-        projection_s_list.append(s_map[match_index_list[i]] + np.dot(d_v, tou_v))  # np.dot(d_v, tou_v)即ds大小,有正负号的
+        tou_v = np.array([math.cos(theta), math.sin(theta)])  # 切线方向 单位向量
+        projection_s_list.append(s_map[match_index_list[i]] + np.dot(d_v, tou_v))  # np.dot(d_v, tou_v)即ds大小,有正负号的，投影
 
     return projection_s_list
 
@@ -451,7 +449,7 @@ def cal_s_map_fun(local_path_opt: list, origin_xy: tuple):
     计算参考线上每个节点与s的映射关系(方便查表s?), 以车辆当前投影点为原点，不是以参考线的起点。 s就是位矢，用折线来拟合
     param:  local_path_opt: 优化后的frenet参考线[(x, y, theta, kappa), ...]
             origin_xy: 车辆当前的位置
-    return: s_map: list类型 和输入的参考线长度相同
+    return: s_map: list类型 和输入的参考线长度相同，自车位置 s = 0
     """
     # 计算以车辆当前位置投影点为起点的s_map
     origin_match_index, _ = match_projection_points([origin_xy], local_path_opt)
@@ -461,8 +459,7 @@ def cal_s_map_fun(local_path_opt: list, origin_xy: tuple):
     ref_s_map = [0]
     # 先计算以参考线起点为起点的ref_s_map
     for i in range(1, len(local_path_opt)):
-        s = math.sqrt((local_path_opt[i][0] - local_path_opt[i - 1][0]) ** 2
-                      + (local_path_opt[i][1] - local_path_opt[i - 1][1]) ** 2) + ref_s_map[-1]
+        s = math.sqrt((local_path_opt[i][0] - local_path_opt[i - 1][0]) ** 2 + (local_path_opt[i][1] - local_path_opt[i - 1][1]) ** 2) + ref_s_map[-1]
         ref_s_map.append(s)
     # print("ref_s_map", ref_s_map)
     # 然后算出在车辆当前位置投影点相对于参考线起点的s, 记为s0

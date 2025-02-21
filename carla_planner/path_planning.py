@@ -272,7 +272,7 @@ def cal_lmin_lmax(dp_path_s, dp_path_l, obs_s_list, obs_l_list, obs_length, obs_
                 lmin[j] = max(lmin[j], obs_l_list[i] + obs_width / 2)
     return lmin, lmax
 
-
+# TODO(fanyu): 并没有根据道路宽度和边界进行采样
 def DP_algorithm(obs_s_list: list, obs_l_list: list,
                  plan_start_s, plan_start_l, plan_start_dl, plan_start_ddl, sampling_res=2,
                  w_collision_cost=1e12, w_smooth_cost=[300, 1000, 5000], w_reference_cost=20,

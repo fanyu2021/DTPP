@@ -52,7 +52,7 @@ screen = pygame.display.set_mode((display_width, display_height))
 pygame.display.set_caption("CARLA DTPP Planning and Control")
 
 def global_routing(amap: carla.Map, start_tsf: carla.Transform, end_tsf: carla.Transform, debug: carla.DebugHelper,plot: bool = False):
-    global_route_plan = global_path_planner(world_map=amap, sampling_resolution=2)  # 实例化全局规划器
+    global_route_plan = global_path_planner(world_map=amap, sampling_resolution=0.5)  # 实例化全局规划器
     
     # # 手动设置起始点和终点
     # start_node_id = 326
@@ -68,7 +68,8 @@ def global_routing(amap: carla.Map, start_tsf: carla.Transform, end_tsf: carla.T
     road_ids: set = set()
     for path_item in routing_pathway:
         road_ids.add(path_item[0].road_id)
-        debug.draw_point(path_item[0].transform.location, size=0.05, color=carla.Color(255, 255, 0), life_time=0,)
+        debug.draw_point(path_item[0].transform.location, size=0.1, color=carla.Color(), life_time=0,)
+        # debug.draw_string(path_item[0].transform.location, 'x', draw_shadow=False, color=carla.Color(), life_time=0)
         # print(f'--- road_id:{path_item[0].road_id}, path item: {path_item[0]}, type: {path_item[1]}')
     # 绘制拓扑图和routing信息
     if plot:
@@ -157,6 +158,18 @@ if __name__ == '__main__':
     All_spawn_points = amap.get_spawn_points()  # 获取所有carla提供的actor产生位置
     start_wp = All_spawn_points[189] # 259
     end_wp = All_spawn_points[259] # 48
+    
+    # 大型环线测试，从节点20到节点15，注意有可能生成actor不成功，可以结合 All_spawn_points 打印出来选择合适的位置
+    # start_wp = carla.Transform(location=carla.Location(x=-142.31, y=147.54, z=0.06)) # node_id: 20
+    # end_wp = carla.Transform(location=carla.Location(x=-142.29, y=144.04, z=0.06)) # node_id: 15
+    
+    # start_wp = amap.get_waypoint(location=start_loc, project_to_road=True, lane_type=(carla.LaneType.Driving|carla.LaneType.Sidewalk))
+    # end_wp = amap.get_waypoint(location=end_loc, project_to_road=True, lane_type=(carla.LaneType.Driving|carla.LaneType.Sidewalk))
+    
+    
+    # 方法2
+    # start_wp = All_spawn_points[209] # node_id: 15
+    # end_wp = All_spawn_points[210] # node_id: 20
     
     # 描绘出所有的actor产生位置
 
@@ -299,8 +312,7 @@ if __name__ == '__main__':
                 local_frenet_path_opt = cur_local_frenet_path_opt
                 for point in local_frenet_path_opt:
                     # print(waypoint)
-                    debug.draw_point(carla.Location(point[0], point[1], 2),
-                                     size=0.05, color=carla.Color(255, 0, 0), life_time=0.1)
+                    debug.draw_point(carla.Location(point[0], point[1], 2), size=0.1, color=carla.Color(r=255), life_time=0.1)
             # 注意重新实例化控制器的位置，不能放错了
             Controller = Vehicle_control(ego_vehicle=ego_actor, vehicle_para=vehicle_para,
                                          pathway=local_frenet_path_opt,

@@ -1,3 +1,11 @@
+'''
+Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
+Author: 范雨
+Date: 2025-01-09 10:11:13
+LastEditTime: 2025-02-21 17:03:01
+LastEditors: 范雨
+Description: 
+'''
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -38,10 +46,11 @@ config = {
 def load(path='~/CARLA_0.9.9.4'):
     try:
         sys.path.append(path+'/PythonAPI')
-        sys.path.append(glob.glob(path+'/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
-            sys.version_info.major,
-            sys.version_info.minor,
-            'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+        # sys.path.append(glob.glob(path+'/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
+        #     sys.version_info.major,
+        #     sys.version_info.minor,
+        #     'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+        sys.path.append(glob.glob(path+'/PythonAPI/carla/dist/carla-0.9.15-py3.7-linux-x86_64.egg'))
     except:
         print('Fail to load carla library')
         

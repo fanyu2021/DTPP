@@ -15,13 +15,13 @@ def motion_planning_rule(static_obs_info, dynamic_obs_info,
                                                                 is_first_run=False,
                                                                 pre_match_index=match_point_list[0])
         # 2.根据匹配点的索引在全局路径上采样一定数量的点
-        local_frenet_path_ = planning_utils.sampling(match_point_list[0], global_frenet_path,
+        local_frenet_refline = planning_utils.sampling(match_point_list[0], global_frenet_path,
                                                      back_length=10, forward_length=50)
         # 由于我们的道路采样精度最少是2（1的情况不考虑，太小的采样精度在实际中不现实），所以确定参考线的时候向后取50个点可以保证最少以百米的未来参考
         # 后面进行动态规划的时候我们搜索的范围就是一百米，所以要保证动态规划的过程中参考线是存在的
 
         # 3.对采样点进行平滑，作为后续规划的参考线
-        local_frenet_path_opt = planning_utils.smooth_reference_line(local_frenet_path_)
+        local_frenet_path_opt = planning_utils.smooth_reference_line(local_frenet_refline)
 
         # 计算以车辆当前位置为原点的s_map
         s_map = planning_utils.cal_s_map_fun(local_frenet_path_opt, origin_xy=ego_loc[0:2])

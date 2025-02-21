@@ -26,7 +26,7 @@ class RoadOption(Enum):
 
 
 class global_path_planner(object):
-    def __init__(self, world_map, sampling_resolution):
+    def __init__(self, world_map, sampling_resolution=0.5):
         self._map = world_map  # type: carla.Map
         self._sampling_resolution = sampling_resolution
         self._topology = None

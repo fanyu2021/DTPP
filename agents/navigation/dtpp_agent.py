@@ -15,11 +15,15 @@ from agents.navigation.basic_agent import BasicAgent
 from agents.navigation.local_planner import RoadOption
 from agents.navigation.behavior_types import Cautious, Aggressive, Normal
 
+from agents.dtpp_common.common import DtppInputs
+from agents.dtpp_common.common_utils import DtppMap
+
 from agents.tools.misc import get_speed, positive, is_within_distance, compute_distance
 
-class BehaviorAgent(BasicAgent):
+
+class DtppAgent(BasicAgent):
     """
-    BehaviorAgent implements an agent that navigates scenes to reach a given
+    DtppAgent implements an agent that navigates scenes to reach a given
     target destination, by computing the shortest possible path to it.
     This agent can correctly follow traffic signs, speed limitations,
     traffic lights, while also taking into account nearby vehicles. Lane changing
@@ -50,6 +54,7 @@ class BehaviorAgent(BasicAgent):
         self._min_speed = 5
         self._behavior = None
         self._sampling_resolution = 4.5
+        self._dtpp_inputs = DtppInputs(vehicle=self._vehicle)
 
         # Parameters for agent behavior
         if behavior == 'cautious':
@@ -60,6 +65,12 @@ class BehaviorAgent(BasicAgent):
 
         elif behavior == 'aggressive':
             self._behavior = Aggressive()
+            
+    def set_dtpp_map(self):
+        routing = [wp_road_opt for wp_road_opt in self.get_local_planner().get_plan()] # (carla.Waypoint, RoadOption)
+        print(routing[-1])
+        self._dtpp_map = DtppMap(self._map, self.get_global_planner()._topology, routing)
+        
 
     def _update_information(self):
         """
@@ -304,6 +315,37 @@ class BehaviorAgent(BasicAgent):
 
         return control
 
+    def run_step_e2e(self, debug=False):
+
+        self._update_information()
+        control = None
+        # 1.获取carla中的数据，并进行封装；
+        """
+        1. routing: [(carla.Waypoint, RoadOption)]
+        """ 
+
+        
+        # for wp_road_opt in routing:
+        #     # world.world.debug.draw_point(wp_road_opt[0].transform.location, size=0.1, color=carla.Color(r=255), lifetime=0, persistent_lines=False)
+        #     print(f'--wp:{wp_road_opt[0].transform}')
+        #     # print(f'--road_opt:{wp_road_opt[1]}')
+        
+
+        """
+        2. record history vehicle states;
+        """
+        features = self._dtpp_inputs.update(dtpp_map=self._dtpp_map)
+        print(f'--features:{features}')
+
+        # 2.将carla中的数据转换为dtpp中的数据，feature输入
+        # features = self._dtpp_inputs.get_features()
+
+        # 3.得到loal_planner的输出的轨迹；
+
+        # 4.得到的轨迹进行控制处理，得到控制量 control 结果；
+
+        return control
+
     def emergency_stop(self):
         """
         Overwrites the throttle a brake values of a control to perform an emergency stop.
@@ -316,3 +358,34 @@ class BehaviorAgent(BasicAgent):
         control.brake = self._max_brake
         control.hand_brake = False
         return control
+
+    def draw_map_top(self, routing):
+        from tmp_test.test_2_road_graph_and_routing import draw_map
+        from matplotlib import pyplot as plt
+
+        plt.figure(figsize=(10, 10))
+        plt.axis("equal")
+        plt.grid()
+        plt.scatter(
+            [wp_road_opt[0].transform.location.x for wp_road_opt in routing],
+            [wp_road_opt[0].transform.location.y for wp_road_opt in routing],
+            s=1,
+            color="r",
+        )
+        # 分别画出起点和终点
+        plt.scatter(
+            routing[0][0].transform.location.x,
+            routing[0][0].transform.location.y,
+            c="r",
+            marker="o",
+        )
+        plt.scatter(
+            routing[-1][0].transform.location.x,
+            routing[-1][0].transform.location.y,
+            c="g",
+            marker="o",
+        )
+        draw_map(self._world, self._map)
+        # import time
+        # plt.savefig(f'./routing_{time.time()}.png')
+        plt.show()
