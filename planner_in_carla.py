@@ -15,10 +15,15 @@ from torch.nn.utils.rnn import pad_sequence
 from scenario_tree_prediction import *
 from planner_utils import *
 # from nuplan.planning.simulation.observation.idm.utils import path_to_linestring
-from carla2inputs import EgoState
 from typing import List
 
+import carla
+
+from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, STATIC_OBJECT_TYPES
+
+from agents.dtpp_common.common import get_ego_state_list_from_actor
+from custom_format import *
 
 
 def path_to_linestring(path: List[EgoState]) -> LineString:
@@ -149,7 +154,7 @@ class TrajTree:
                 return nodes, flag
 
 
-class TreePlanner:
+class CarlaTreePlanner:
     def __init__(self, device, encoder, decoder, n_candidates_expand=5, n_candidates_max=30):
         self.encoder = encoder
         self.decoder = decoder
@@ -201,51 +206,43 @@ class TreePlanner:
         edges_distance = []
         self.ego_point = (self.ego_state.x, self.ego_state.y)
 
-        # for edge in starting_block.interior_edges:
-        #     edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
-        #     if edge.polygon.distance(Point(self.ego_point)) < 4:
-        #         edges.append(edge)
+        for edge in starting_block.interior_edges:
+            edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
+            if edge.polygon.distance(Point(self.ego_point)) < 4:
+                edges.append(edge)
         
         # if no edge is close to ego, use the closest edge
-        # if len(edges) == 0:
-        #     edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
+        if len(edges) == 0:
+            edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
 
-        # return edges
-        return []
+        return edges
 
     def generate_paths(self, routes):
-        ego_state = self.ego_state.x, self.ego_state.y, self.ego_state.heading
+        ego_state = self.ego_state.rear_axle.x, self.ego_state.rear_axle.y, self.ego_state.rear_axle.heading
         
         # generate paths
         new_paths = []
         path_distance = []
-        # for (path_len, dist, path_polyline) in routes:
-        # for path_polyline in routes:
-        path_polyline = list(routes)
-        if len(path_polyline) > 81:
-            sampled_index = np.array([5, 10, 15, 20]) * 4
-        elif len(path_polyline) > 61:
-            sampled_index = np.array([5, 10, 15]) * 4
-        elif len(path_polyline) > 41:
-            sampled_index = np.array([5, 10]) * 4
-        elif len(path_polyline) > 21:
-            sampled_index = [20]
-        else:
-            sampled_index = [1]
+        for (path_len, dist, path_polyline) in routes:
+            if len(path_polyline) > 81:
+                sampled_index = np.array([5, 10, 15, 20]) * 4
+            elif len(path_polyline) > 61:
+                sampled_index = np.array([5, 10, 15]) * 4
+            elif len(path_polyline) > 41:
+                sampled_index = np.array([5, 10]) * 4
+            elif len(path_polyline) > 21:
+                sampled_index = [20]
+            else:
+                sampled_index = [1]
      
-        print(f'---234 path_polyline---: {path_polyline}')
-        print(f'---234 path_polyline.type ---: {type(path_polyline)}')
-        print(f'---234 sampled_index---: {sampled_index}')
-        print(f'---234 len(path_polyline)---: {len(path_polyline)}')
-        print(f'---234 len(path_polyline[0])---: {len(path_polyline[0])}')
-        target_states = path_polyline[sampled_index].tolist()
-        for j, state in enumerate(target_states):
-            first_stage_path = calc_4points_bezier_path(ego_state[0], ego_state[1], ego_state[2], 
-                                                        state[0], state[1], state[2], 3, sampled_index[j])[0]
-            second_stage_path = path_polyline[sampled_index[j]+1:, :2]
-            path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
-            new_paths.append(path_polyline)  
-            path_distance.append(dist)   
+            target_states = path_polyline[sampled_index].tolist()
+            for j, state in enumerate(target_states):
+                first_stage_path = calc_4points_bezier_path(ego_state[0], ego_state[1], ego_state[2], 
+                                                            state[0], state[1], state[2], 3, sampled_index[j])[0]
+                second_stage_path = path_polyline[sampled_index[j]+1:, :2]
+                path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
+                new_paths.append(path_polyline)  
+                path_distance.append(dist)   
 
         # evaluate paths
         candiate_paths = {}
@@ -353,11 +350,11 @@ class TreePlanner:
 
         return path
 
-    def plan(self, iteration, ego_state, env_inputs, starting_block, route_roadblocks, candidate_lane_edge_ids, traffic_light, observation, debug=False):
+    def plan(self, iteration, dtpp_map, vehicle: carla.Actor, env_inputs, candidate_lanes, traffic_light, observation, debug=False):
         # get environment information
-        self.ego_state = ego_state
-        self.candidate_lane_edge_ids = candidate_lane_edge_ids
-        self.route_roadblocks = route_roadblocks
+        self.ego_state = get_ego_state_list_from_actor(0, ego=vehicle)
+        self.candidate_lane_edge_ids = [lane.id for lane in candidate_lanes]
+        # self.route_roadblocks = route_roadblocks
         self.traffic_light = traffic_light
         object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
                         TrackedObjectType.CZONE_SIGN, TrackedObjectType.TRAFFIC_CONE,
@@ -374,17 +371,20 @@ class TreePlanner:
         # initial tree (root node)
         # x, y, heading, velocity, acceleration, curvature, time
         state = torch.tensor([[0, 0, 0, # x, y, heading 
-                               ego_state.dynamic_car_state.rear_axle_velocity_2d.x,
-                               ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]], dtype=torch.float32)
+                               self.ego_state.dynamic_car_state.rear_axle_velocity_2d.x,
+                               self.ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]], dtype=torch.float32)
         tree = TrajTree(state, None, 0)
 
         # environment encoding
         encoder_outputs = self.encoder(env_inputs)
         agent_states = env_inputs['neighbor_agents_past']
 
+        # logger.debug(f'encoder_outputs: {encoder_outputs}')
         # get candidate map lanes
-        edges = self.get_candidate_edges(starting_block)
-        candidate_paths = self.get_candidate_paths(edges)
+        # edges = self.get_candidate_edges(starting_block)
+        # candidate_paths = self.get_candidate_paths(edges)
+        candidate_paths = dtpp_map.get_candidate_paths(vehicle)
+        # logger.debug(f'candidate_paths: {candidate_paths}')
         paths = self.generate_paths(candidate_paths)
         self.speed_limit = edges[0].speed_limit_mps or self.target_speed
         

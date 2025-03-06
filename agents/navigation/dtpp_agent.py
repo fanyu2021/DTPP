@@ -9,16 +9,21 @@ waypoints and avoiding other vehicles. The agent also responds to traffic lights
 traffic signs, and has different possible configurations. """
 
 import random
+import math
 import numpy as np
+import torch
 import carla
+
 from agents.navigation.basic_agent import BasicAgent
 from agents.navigation.local_planner import RoadOption
 from agents.navigation.behavior_types import Cautious, Aggressive, Normal
-
 from agents.dtpp_common.common import DtppInputs
 from agents.dtpp_common.common_utils import DtppMap
-
 from agents.tools.misc import get_speed, positive, is_within_distance, compute_distance
+
+from scenario_tree_prediction import *
+from planner_in_carla import CarlaTreePlanner
+
 
 
 class DtppAgent(BasicAgent):
@@ -34,7 +39,7 @@ class DtppAgent(BasicAgent):
     are encoded in the agent, from cautious to a more aggressive ones.
     """
 
-    def __init__(self, vehicle, behavior='normal', opt_dict={}, map_inst=None, grp_inst=None):
+    def __init__(self, vehicle, model_path, device, behavior='normal', opt_dict={}, map_inst=None, grp_inst=None):
         """
         Constructor method.
 
@@ -46,6 +51,7 @@ class DtppAgent(BasicAgent):
         self._look_ahead_steps = 0
 
         # Vehicle information
+        self._iteration = 0
         self._speed = 0
         self._speed_limit = 0
         self._direction = None
@@ -55,6 +61,10 @@ class DtppAgent(BasicAgent):
         self._behavior = None
         self._sampling_resolution = 4.5
         self._dtpp_inputs = DtppInputs(vehicle=self._vehicle)
+        torch.set_grad_enabled(False)
+        # self._planner = Planner(model_path=model_path, device=device)
+        self._tree_planner = self._get_tree_planner(model_path=model_path, device=device)
+        
 
         # Parameters for agent behavior
         if behavior == 'cautious':
@@ -68,10 +78,24 @@ class DtppAgent(BasicAgent):
             
     def set_dtpp_map(self):
         routing = [wp_road_opt for wp_road_opt in self.get_local_planner().get_plan()] # (carla.Waypoint, RoadOption)
-        print(routing[-1])
         self._dtpp_map = DtppMap(self._map, self.get_global_planner()._topology, routing)
         
 
+    def _get_tree_planner(self, model_path, device):
+        torch.set_grad_enabled(False)
+        model = torch.load(model_path, map_location=device)
+        encoder = Encoder()
+        encoder.load_state_dict(model['encoder'])
+        encoder.to(device)
+        encoder.eval()
+        decoder = Decoder()
+        decoder.load_state_dict(model['decoder'])
+        decoder.to(device)
+        decoder.eval()
+        self._carla_trajectory_planner = CarlaTreePlanner(device, encoder, decoder)
+
+        
+        
     def _update_information(self):
         """
         This method updates the information regarding the ego
@@ -324,7 +348,6 @@ class DtppAgent(BasicAgent):
         1. routing: [(carla.Waypoint, RoadOption)]
         """ 
 
-        
         # for wp_road_opt in routing:
         #     # world.world.debug.draw_point(wp_road_opt[0].transform.location, size=0.1, color=carla.Color(r=255), lifetime=0, persistent_lines=False)
         #     print(f'--wp:{wp_road_opt[0].transform}')
@@ -332,15 +355,54 @@ class DtppAgent(BasicAgent):
         
 
         """
-        2. record history vehicle states;
+        2. r将carla中的数据转换为dtpp中的数据，feature输入;
         """
         features = self._dtpp_inputs.update(dtpp_map=self._dtpp_map)
-        print(f'--features:{features}')
+        if not features:
+            return None
+        # print(f'--features:{features}')
 
-        # 2.将carla中的数据转换为dtpp中的数据，feature输入
-        # features = self._dtpp_inputs.get_features()
+        """
+        3.得到loal_planner的输出的轨迹；
+        """
+        # # Get starting block 就是找到当前车辆所在的道路
+        # starting_block = None
+        # cur_point = (self._vehicle.get_location().x, self._vehicle.get_location().y)
+        # closest_distance = math.inf
 
-        # 3.得到loal_planner的输出的轨迹；
+        # for block in self._route_roadblocks:
+        #     for edge in block.interior_edges:
+        #         distance = edge.polygon.distance(Point(cur_point))
+        #         if distance < closest_distance:
+        #             starting_block = block
+        #             closest_distance = distance
+
+        #     if np.isclose(closest_distance, 0):
+        #         break
+        
+        # Get traffic light lanes
+        traffic_light_lanes = self._dtpp_inputs.get_traffic_light_lane(self._dtpp_map)
+        
+        
+
+
+        # Tree policy planner        
+        try:
+            plan = self._carla_trajectory_planner.plan(self._iteration, self._dtpp_map, self._vehicle, features, 
+                                             traffic_light_lanes, traffic_light_lanes, self._dtpp_inputs.observation)
+            self._iteration += 1
+        except Exception as e:
+            print("Error in planning")
+            print(e)
+            plan = np.zeros((self._N_points, 3))
+            
+        # Convert relative poses to absolute states and wrap in a trajectory object
+        states = transform_predictions_to_states(plan, history.ego_states, self._future_horizon, DT)
+        trajectory = InterpolatedTrajectory(states)
+        print(f'Step {iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
+
+        # return trajectory
+
 
         # 4.得到的轨迹进行控制处理，得到控制量 control 结果；
 

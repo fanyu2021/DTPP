@@ -1,6 +1,7 @@
 import sys
 import os
-import logging
+# import logging
+from custom_format import *
 import glob
 import carla
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ try:
         sys.version_info.major,
         sys.version_info.minor,
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
-    logging.debug('Adding CARLA egg to PYTHONPATH: %s' % sys.path[-1])
+    logger.debug('Adding CARLA egg to PYTHONPATH: %s' % sys.path[-1])
 except IndexError:
     pass
 
@@ -35,7 +36,7 @@ client = carla.Client('localhost', 2000)
 client.set_timeout(10.0)
 world = client.get_world()
 carla_map = world.get_map()
-logging.info("Carla Map: {}".format(carla_map.name))
+logger.info("Carla Map: {}".format(carla_map.name))
 
 SAMPLE_RESOLUTION = 0.5
 
@@ -49,7 +50,7 @@ def get_lane_center_lines(map_obj, sampling_resolution=SAMPLE_RESOLUTION, timeou
     """
     # 获取所有道路段的拓扑结构（起点和终点路径点）
     topology = map_obj.get_topology()
-    logging.info("Topology: {}".format(topology))
+    logger.info("Topology: {}".format(topology))
     
     lane_lines, junction_lines = [], []
     
@@ -73,13 +74,13 @@ def get_lane_points(sampling_resolution, start_wp, end_wp, i = None, timeout=20.
     while True:
             # 检查超时
         if time.time() - start_time > timeout:
-            logging.warning(f"--- {i} ---超时，停止生成路径点")
+            logger.warning(f"--- {i} ---超时，停止生成路径点")
             break
             
             # 添加当前路径点的位置（忽略Z轴）
             # loc = current_wp.transform.location
         lane_points.append(current_wp)  # Y轴取反，适配常规坐标系
-        logging.info(f"current_wp: {current_wp}")
+        logger.info(f"current_wp: {current_wp}")
             
             # 到达终点或车道ID变化时停止
         if current_wp.id == end_wp.id:
@@ -198,7 +199,7 @@ def plot_lane_center_lines(lane_lines, juntion_lines, traffic_lights_info, cross
         # 画出起始点和终点，用不同的颜色
         # plt.plot(x[0], y[0], 'r.')
         plt.plot(x[-1], y[-1], 'b.')
-        logging.info(f"lane: {lane}")
+        logger.info(f"lane: {lane}")
         
     # 绘制junction
     for junction in juntion_lines:
@@ -282,7 +283,7 @@ def plot_lane_center_lines(lane_lines, juntion_lines, traffic_lights_info, cross
 
 # 主程序
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logger.basicConfig(level=logger.INFO)
     lane_center_lines, juntion_lines = get_lane_center_lines(carla_map)
     traffic_light_info = get_traffic_lights_info(world)
     cross_walks = get_corsswalks_info(carla_map)

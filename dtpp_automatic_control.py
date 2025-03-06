@@ -2,8 +2,8 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-02-20 17:01:12
-LastEditTime: 2025-03-03 03:31:52
-LastEditors: fanyu fantiming@yeah.net
+LastEditTime: 2025-03-05 20:24:44
+LastEditors: 范雨
 Description: 
 '''
 #!/usr/bin/env python
@@ -17,7 +17,8 @@ import argparse
 import collections
 import datetime
 import glob
-import logging
+# import logger
+from custom_format import *
 import math
 import os
 import numpy.random as random
@@ -48,7 +49,7 @@ try:
         sys.version_info.major,
         sys.version_info.minor,
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
-    logging.debug('Adding CARLA egg to PYTHONPATH: %s' % sys.path[-1])
+    logger.debug('Adding CARLA egg to PYTHONPATH: %s' % sys.path[-1])
 except IndexError:
     pass
 
@@ -162,7 +163,7 @@ class World(object):
         blueprint = next((blp for blp in blueprint_list if blp.id == "vehicle.tesla.model3"), None)
         if blueprint.has_attribute('color'):
             # colors = blueprint.get_attribute('color').recommended_values
-            # logging.info('--- Available vehicle colors:', colors)
+            # logger.info('--- Available vehicle colors:', colors)
             # recommended_values_colors = ['17,37,103', '75,86,173', '180,42,42', '0,0,0', '137,0,0']
             blueprint.set_attribute('color', '0,0,0') # 设置默认黑色
         if blueprint is None:
@@ -172,7 +173,7 @@ class World(object):
         blueprint.set_attribute('role_name', 'hero')
         if blueprint.has_attribute('color'):
             # color = random.choice(blueprint.get_attribute('color').recommended_values)
-            # logging.info('--- Available vehicle colors:', colors)
+            # logger.info('--- Available vehicle colors:', colors)
             recommended_values_colors = ['17,37,103', '75,86,173', '180,42,42', '0,0,0', '137,0,0']
             color = recommended_values_colors[3]
             blueprint.set_attribute('color', color)
@@ -780,8 +781,8 @@ def game_loop(args):
         elif args.agent == "Behavior":
             agent = BehaviorAgent(world.player, behavior=args.behavior, opt_dict=opt_dict)
         elif args.agent == "Dtpp":
-            agent = DtppAgent(world.player, behavior=args.behavior, opt_dict=opt_dict)
-            logging.info("--- This is DTPP agent!")
+            agent = DtppAgent(world.player, behavior=args.behavior, model_path=args.model_path, device='cuda', opt_dict=opt_dict)
+            logger.info("This is DTPP agent!")
 
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
@@ -799,10 +800,10 @@ def game_loop(args):
             clock.tick()
             if args.sync:
                 world.world.tick()
-                # logging.info("--- Sync mode")
+                # logger.info("--- Sync mode")
             else:
                 world.world.wait_for_tick()
-                # logging.info("--- Async mode")
+                # logger.info("--- Async mode")
             if controller.parse_events():
                 return
 
@@ -819,15 +820,18 @@ def game_loop(args):
                     print("The target has been reached, stopping the simulation")
                     break
             control = agent.run_step_e2e() if args.agent == "Dtpp" else agent.run_step(True)
+            if not control:
+                logger.error("--- Control is not ready!")
+                continue
             control.manual_gear_shift = False
             world.player.apply_control(control)
             
             # 计算剩余时间并休眠
             elapsed_time = time.time() - start_time
             sleep_time = max(0, 0.1 - elapsed_time)
-            # logging.info("--- time_diff: %.2f seconds" % (time.time() - last_frame_time_s))
+            # logger.info("--- time_diff: %.2f seconds" % (time.time() - last_frame_time_s))
             # last_frame_time_s = time.time()
-            logging.info("Elapsed time: %.2f seconds, sleep time: %.2f seconds" % (elapsed_time, sleep_time))
+            logger.info("Elapsed time: %.2f seconds, sleep time: %.2f seconds" % (elapsed_time, sleep_time))
             time.sleep(sleep_time)
 
     finally:
@@ -856,10 +860,10 @@ def main():
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
 
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
+    # log_level = logging.DEBUG if args.debug else logging.INFO
+    # logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
 
-    logging.info('listening to server %s:%s', args.host, args.port)
+    logger.info('listening to server %s:%s', args.host, args.port)
 
     print(__doc__) # 打印文档头部信息 copyright
 
@@ -931,8 +935,12 @@ def get_argparser():
     argparser.add_argument(
         '-m', '--map',  type=str,
         help='Choose a map (default: Town05)',
-        default='Town05'
-    )
+        default='Town05')
+    argparser.add_argument(
+        '-d', '--model_path', type=str,
+        help='model path', 
+        default='base_model/base_model.pth')
+    
 
     args = argparser.parse_args()
     return args

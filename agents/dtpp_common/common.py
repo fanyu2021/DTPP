@@ -4,7 +4,8 @@ from collections import deque
 from typing import Deque, List, Optional, Tuple, Dict
 import time
 import math
-import logging
+# import logging
+from custom_format import *
 from dataclasses import dataclass, field
 
 
@@ -31,12 +32,10 @@ from nuplan.planning.training.preprocessing.feature_builders.vector_builder_util
 )
 
 
-
-from agents.dtpp_common.common_utils import get_neighbor_vector_set_map
+from agents.dtpp_common.common_utils import get_neighbor_vector_set_map, DtppMap, DtppLane
 
 
 import torch
-
 
 
 WINDOW_SIZE = 22
@@ -54,13 +53,12 @@ class DtppDataConfig:
     max_points = {'LANE': 50, 'ROUTE_LANES': 50, 'CROSSWALK': 30} 
     radius = 80 # [m] query radius scope relative to the current pose.
     interpolation_method = 'linear'
-    
 
 
 def get_state_list_from_actor(timestamp_us: int, actor: carla.Actor) -> List[float]:
     x = actor.get_location().x
     y = actor.get_location().y
-    heading = math.radians(actor.get_transform().get_rotation().yaw)
+    heading = math.radians(actor.get_transform().rotation.yaw)
     vx = actor.get_velocity().x
     vy = actor.get_velocity().y
     ax = actor.get_acceleration().x
@@ -68,6 +66,23 @@ def get_state_list_from_actor(timestamp_us: int, actor: carla.Actor) -> List[flo
     tire_steering_angle = 0 # TODO: get from actor
     return [timestamp_us, x, y, heading, vx, vy, ax, ay, tire_steering_angle]
 
+def get_ego_state_list_from_actor(timestamp_us: int, ego: carla.Actor) -> EgoState:
+    # time_us = time.time() * 1e6 放在外面，避免每次调用都计算
+    state_vector_list = get_state_list_from_actor(timestamp_us=timestamp_us, actor=ego)
+    vehicle_params = get_vehicle_params_from_actor(actor=ego)
+    return EgoState.deserialize(vector=state_vector_list, vehicle=vehicle_params)
+
+
+# def get_state_list_from_actor(timestamp_us: int, actor: carla.Actor) -> List[float]:
+#     x = actor.get_location().x
+#     y = actor.get_location().y
+#     heading = math.radians(actor.get_transform().rotation.yaw)
+#     vx = actor.get_velocity().x
+#     vy = actor.get_velocity().y
+#     ax = actor.get_acceleration().x
+#     ay = actor.get_acceleration().y
+#     tire_steering_angle = 0 # TODO: get from actor
+#     return [timestamp_us, x, y, heading, vx, vy, ax, ay, tire_steering_angle]
 
 def get_vehicle_params_from_actor(actor: carla.Actor) -> VehicleParameters:
     # TODO: (fanyu)这是tesla model 3的数据，需要改成其他车型的数据
@@ -91,7 +106,7 @@ def get_vehicle_params_from_actor(actor: carla.Actor) -> VehicleParameters:
         vehicle_type=vehicle_type,
         height=height,
     )
-    
+
 def get_tracked_object_type(actor: carla.Actor) -> TrackedObjectType:
     if actor.type_id.startswith('vehicle.*'):
         if actor.type_id.endswith('crossbike'): # vehicle.bh.crossbike
@@ -102,7 +117,7 @@ def get_tracked_object_type(actor: carla.Actor) -> TrackedObjectType:
         return TrackedObjectType.PEDESTRIAN
     else:
         raise ValueError("Unsupported actor type")
-    
+
 def get_tracked_object_oriented_box(actor: carla.Actor) -> OrientedBox:
     centor = StateSE2.deserialize([actor.get_location().x, actor.get_location().y, math.radians(actor.get_transform().get_rotation().yaw)])
     length = actor.bounding_box.extent.x * 2
@@ -131,7 +146,7 @@ def get_agent_from_actor(actor: carla.Actor) -> Agent:
         predictions=None,
         past_trajectory=None
     )
-    
+
 def get_tracked_objects_from_actors(actors: List[carla.Actor]) -> TrackedObjects:
     tracked_agents = []
     for actor in actors:
@@ -151,7 +166,7 @@ def get_tracked_actors(world: carla.World) -> List[carla.Actor]:
     func = lambda a: a.type_id.startswith('vehicle.*') or a.type_id.startswith('walker.*') or a.type_id.endswith('crossbike')
     return list(filter(func, world.get_actors()))
 
-def get_traffic_light_data(world: carla.World) -> List[TrafficLightStatusData]:
+def get_traffic_light_data(world: carla.World) -> Tuple[List[TrafficLightStatusData], List[carla.Actor]]:
     traffic_lights = world.get_actors().filter('traffic.traffic_light')
     traffic_light_status_list = []
     traffice_light_state_map = {
@@ -176,18 +191,8 @@ def get_traffic_light_data(world: carla.World) -> List[TrafficLightStatusData]:
             timestamp=time.time()*1e6
         )
         traffic_light_status_list.append(traffic_light_status)
-    return traffic_light_status_list
+    return traffic_light_status_list, traffic_lights
 
-def get_state_list_from_actor(timestamp_us: int, actor: carla.Actor) -> List[float]:
-    x = actor.get_location().x
-    y = actor.get_location().y
-    heading = math.radians(actor.get_transform().rotation.yaw)
-    vx = actor.get_velocity().x
-    vy = actor.get_velocity().y
-    ax = actor.get_acceleration().x
-    ay = actor.get_acceleration().y
-    tire_steering_angle = 0 # TODO: get from actor
-    return [timestamp_us, x, y, heading, vx, vy, ax, ay, tire_steering_angle]
 
 def global_velocity_to_local(velocity, anchor_heading):
     velocity_x = velocity[:, 0] * torch.cos(anchor_heading) + velocity[:, 1] * torch.sin(anchor_heading)
@@ -237,15 +242,15 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     agents = past_tracked_objects
 
     anchor_ego_state = ego_history[-1, :].squeeze().clone()
-    logging.warning(f"--- ego_history: {ego_history}")
-    logging.info(f"---- anchor_ego_state: {anchor_ego_state}")
+    logger.warning(f"--- ego_history.shape: {ego_history.shape}")
+    logger.info(f"---- anchor_ego_state: {anchor_ego_state}")
     ego_tensor = convert_absolute_quantities_to_relative(ego_history, anchor_ego_state)
     agent_history = filter_agents_tensor(agents, reverse=True)
     agent_types = tracked_objects_types[-1]
 
     if agent_history[-1].shape[0] == 0:
         # Return zero tensor when there are no agents in the scene
-        logging.info("--- There is no agent in deque.")
+        logger.info("--- There is no agent in deque.")
         agents_tensor = torch.zeros((len(agent_history), 0, agents_states_dim)).float()
     else:
         local_coords_agent_states = []
@@ -262,7 +267,7 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     agents = torch.zeros((num_agents, agents_tensor.shape[0], agents_tensor.shape[-1]+3), dtype=torch.float32)
 
     # sort agents according to distance to ego
-    print(f'--- agents_tensor.shape = {agents_tensor.shape}')
+    logger.info(f'--- agents_tensor.shape = {agents_tensor.shape}')
     distance_to_ego = torch.norm(agents_tensor[-1, :, :2], dim=-1)
     indices = list(torch.argsort(distance_to_ego).numpy())[:num_agents]
 
@@ -619,75 +624,105 @@ def sampled_tracked_agents_to_tensor_list(past_tracked_objects):
 
 class DtppInputs(object):
     def __init__(self, vehicle: carla.Actor) -> None:
-        self.conf = DtppDataConfig()
-        self.ego_state_buffer = deque(maxlen=WINDOW_SIZE) # EgoState
-        self.observation_buffer = deque(maxlen=WINDOW_SIZE) # TrackedObjects
+        self._conf = DtppDataConfig()
+        self._ego_state_buffer = deque(maxlen=WINDOW_SIZE) # EgoState
+        self._observation_buffer = deque(maxlen=WINDOW_SIZE) # TrackedObjects
         # self.dtpp_map = DtppMap(map, topology, routing)
-        self.vehicle = vehicle
-        self.is_ready = False
+        self._vehicle = vehicle
+        self._is_ready = False
+        self._traffic_light_data: List[TrafficLightStatusData] = []
+        self._carla_traffice_lights: List[carla.Actor] = []
 
     def _update_ego_state_buffer(self, timestamp_us: int, ego: carla.Actor) -> Deque[EgoState]:
-        # time_us = time.time() * 1e6 放在外面，避免每次调用都计算
-        state_vector_list = get_state_list_from_actor(timestamp_us=timestamp_us, actor=ego)
-        vehicle_params = get_vehicle_params_from_actor(actor=ego)
-        ego_state = EgoState.deserialize(vector=state_vector_list, vehicle=vehicle_params)
-        self.ego_state_buffer.append(ego_state)
+        ego_state = get_ego_state_list_from_actor(timestamp_us=timestamp_us, ego=ego)
+        self._ego_state_buffer.append(ego_state)
         
+
     def _update_observation_buffer(self, tracked_actors: List[carla.Actor]) -> Deque[TrackedObjects]:
         tracked_objects = get_tracked_objects_from_actors(tracked_actors)
         observation = DetectionsTracks(tracked_objects=tracked_objects)
-        self.observation_buffer.append(observation)
-        
+        self._observation_buffer.append(observation)
+
     def update(self, dtpp_map, device='cuda'):
         timestamp_us = time.time() * 1e6
-        tracked_actors = get_tracked_actors(world=self.vehicle.get_world())
-        self._update_ego_state_buffer(timestamp_us=timestamp_us, ego=self.vehicle)        
+        tracked_actors = get_tracked_actors(world=self._vehicle.get_world())
+        self._update_ego_state_buffer(timestamp_us=timestamp_us, ego=self._vehicle)        
         self._update_observation_buffer(tracked_actors=tracked_actors)
-        ego_agent_past = sampled_past_ego_states_to_tensor(self.ego_state_buffer)
-        past_tracked_objects_tensor_list, past_tracked_objects_types = sampled_tracked_agents_to_tensor_list(self.observation_buffer)
-        time_stamps_past = sampled_past_timestamps_to_tensor([state.time_point for state in self.ego_state_buffer])
-        ego_state = self.ego_state_buffer[-1]
-        ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
-        
-        traffic_light_data = get_traffic_light_data(self.vehicle.get_world())
-        
+        ego_agent_past = sampled_past_ego_states_to_tensor(self._ego_state_buffer)
+        past_tracked_objects_tensor_list, past_tracked_objects_types = sampled_tracked_agents_to_tensor_list(self._observation_buffer)
+        time_stamps_past = sampled_past_timestamps_to_tensor([state.time_point for state in self._ego_state_buffer])
+        self._ego_state = self._ego_state_buffer[-1]
+        self._observation = self._observation_buffer[-1]
+        ego_coords = Point2D(self._ego_state.rear_axle.x, self._ego_state.rear_axle.y)
+
+        self._traffic_light_data, self._carla_traffice_lights = get_traffic_light_data(self._vehicle.get_world())
+
         # dtpp_map = DtppMap(self.map, self.topology)
         coords, traffic_light_data = get_neighbor_vector_set_map(
-            dtpp_map, self.conf.map_features, ego_coords, self.conf.radius, traffic_light_data
+            dtpp_map, self._conf.map_features, ego_coords, self._conf.radius, self._traffic_light_data
         )
         # tensor 处理，待检查
         ego_agent_past, neighbor_agents_past = agent_past_process(
-        ego_agent_past, time_stamps_past, past_tracked_objects_tensor_list, past_tracked_objects_types, self.conf.num_agents)
-        vector_map = map_process(ego_state.rear_axle, coords, traffic_light_data, config=self.conf, device=device)
+        ego_agent_past, time_stamps_past, past_tracked_objects_tensor_list, past_tracked_objects_types, self._conf.num_agents)
+        vector_map = map_process(self._ego_state.rear_axle, coords, traffic_light_data, config=self._conf, device=device)
 
         data = {"ego_agent_past": ego_agent_past[1:], 
                 "neighbor_agents_past": neighbor_agents_past[:, 1:]}
         data.update(vector_map)
         data = convert_to_model_inputs(data, device)
-        
-        self.is_ready = True
+        if len(self._ego_state_buffer) == self._conf.window_size and len(self._observation_buffer) == self._conf.window_size:
+            self._is_ready = True
+        else:
+            self._is_ready = False
+            return None
         return data
-        
+
+    @property
+    def traffic_light_data(self):
+        return self._traffic_light_data
+
+    @property
+    def carla_traffice_lights(self):
+        return self._carla_traffice_lights
+
+    @property
+    def ego_state(self):
+        return self._ego_state
     
-    def get_features(self, device):
-        if not self.is_ready:
-            logging.warning("--- Dtpp data is not ready!")
-            return None # TODO: (fanyu) 这里是否应该做一些特殊处理？
-            
-        features = {
-            "ego_agent_past": None,
-            "neighbor_agents_past": None
-        }
-        # 1. 计算上述两个特征
-        vector_map_output = {'map_lanes': None, 'map_crosswalks': None, 'route_lanes': None}
-        # 2. 计算上述地图特征
-        
-        # 3. 合并特征
-        features.update(vector_map_output)
-        # 4. 转换为模型输入格式
-        features = convert_to_model_inputs(features, device)
+    @property
+    def observation(self):
+        return self._observation
 
-        return features
+    def get_traffic_light_lane(self, dtpp_map: DtppMap) -> List[Dict]:
+        traffic_light_lanes: List[Dict] = []
+        candidate_traffic_lanes = dtpp_map.get_candidate_traffic_lanes(self._vehicle)
+        logger.debug(
+            "candidate_lanes entry_points id list: {}".format(
+                [
+                    (
+                        lane["entry"].road_id,
+                        lane["entry"].lane_id,
+                        lane["entry"].junction_id,
+                    )
+                    for lane in candidate_traffic_lanes
+                ]
+            )
+        )
 
-        
-        
+        for lane in candidate_traffic_lanes:
+            for tfl in self.carla_traffice_lights:
+                if tfl.state != TrafficLightStatusType.RED:
+                    continue
+                affected_wp = tfl.get_affected_lane_waypoints()
+                id_pairs = [
+                    (wp.road_id, wp.lane_id, wp.junction_id) for wp in affected_wp
+                ]
+                entry = lane["entry"]
+                if (entry.road_id, entry.lane_id, entry.junction_id) in id_pairs:
+                    traffic_light_lanes.append(lane)
+                    logger.debug(
+                        f"Found traffic light lane entry_point: ({entry.road_id}, {entry.lane_id}, {entry.junction_id})"
+                    )
+        if not traffic_light_lanes:
+            logger.debug("No traffic light lane found")
+        return traffic_light_lanes
