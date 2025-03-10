@@ -17,12 +17,18 @@ import carla
 from agents.navigation.basic_agent import BasicAgent
 from agents.navigation.local_planner import RoadOption
 from agents.navigation.behavior_types import Cautious, Aggressive, Normal
-from agents.dtpp_common.common import DtppInputs
+from agents.dtpp_common.common import DtppInputs, transform_predictions_to_states
 from agents.dtpp_common.common_utils import DtppMap
 from agents.tools.misc import get_speed, positive, is_within_distance, compute_distance
 
+from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory
+
+
 from scenario_tree_prediction import *
 from planner_in_carla import CarlaTreePlanner
+
+T:int = 8
+DT:float = 0.1
 
 
 
@@ -64,6 +70,8 @@ class DtppAgent(BasicAgent):
         torch.set_grad_enabled(False)
         # self._planner = Planner(model_path=model_path, device=device)
         self._tree_planner = self._get_tree_planner(model_path=model_path, device=device)
+        self._future_horizon = T
+        self._N_points = int(T/DT)
         
 
         # Parameters for agent behavior
@@ -357,6 +365,7 @@ class DtppAgent(BasicAgent):
         """
         2. r将carla中的数据转换为dtpp中的数据，feature输入;
         """
+        start_time = time.perf_counter()
         features = self._dtpp_inputs.update(dtpp_map=self._dtpp_map)
         if not features:
             return None
@@ -397,14 +406,18 @@ class DtppAgent(BasicAgent):
             plan = np.zeros((self._N_points, 3))
             
         # Convert relative poses to absolute states and wrap in a trajectory object
-        states = transform_predictions_to_states(plan, history.ego_states, self._future_horizon, DT)
+        states = transform_predictions_to_states(plan, self._dtpp_inputs._ego_state_buffer, self._future_horizon, 0.1)
         trajectory = InterpolatedTrajectory(states)
-        print(f'Step {iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
+        print(f'Step {self._iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
 
         # return trajectory
 
 
         # 4.得到的轨迹进行控制处理，得到控制量 control 结果；
+        target_speed = min([self._behavior.max_speed, self._speed_limit - self._behavior.speed_lim_dist])
+        self._local_planner.set_speed(target_speed)
+        control, transforms = self._local_planner.set_e2e_tracjectory(trajectory, debug=debug)
+        self._dtpp_map.draw_dtpp_map(actor=self._vehicle, trajectory=transforms)
 
         return control
 

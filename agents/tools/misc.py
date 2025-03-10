@@ -12,7 +12,7 @@ import math
 import numpy as np
 import carla
 
-def draw_waypoints(world, waypoints, z=0.5):
+def draw_waypoints(world, transforms, z=0.5):
     """
     Draw a list of waypoints at a certain height given in z.
 
@@ -20,8 +20,8 @@ def draw_waypoints(world, waypoints, z=0.5):
         :param waypoints: list or iterable container with the waypoints to draw
         :param z: height in meters
     """
-    for wpt in waypoints:
-        wpt_t = wpt.transform
+    for wpt in transforms:
+        wpt_t = wpt
         begin = wpt_t.location + carla.Location(z=z)
         angle = math.radians(wpt_t.rotation.yaw)
         end = begin + carla.Location(x=math.cos(angle), y=math.sin(angle))

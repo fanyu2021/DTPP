@@ -386,7 +386,8 @@ class CarlaTreePlanner:
         candidate_paths = dtpp_map.get_candidate_paths(vehicle)
         # logger.debug(f'candidate_paths: {candidate_paths}')
         paths = self.generate_paths(candidate_paths)
-        self.speed_limit = edges[0].speed_limit_mps or self.target_speed
+        # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
+        self.speed_limit = self.target_speed # TODO(fanyu): 道路限速
         
         # expand tree
         tree.expand_children(paths, self.first_stage_horizon, self.speed_limit, self.planner)
@@ -442,6 +443,8 @@ class CarlaTreePlanner:
         if debug:
             for i, traj in enumerate(trajs):
                 self.plot(iteration, env_inputs, traj, agent_trajectories[0, i])
+                
+        # logger.debug(f'best_traj: {best_traj}')
 
         return best_traj
     

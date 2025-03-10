@@ -8,6 +8,9 @@
 from enum import IntEnum
 from collections import deque
 import random
+import numpy as np
+from copy import copy, deepcopy
+from custom_format import *
 
 import carla
 from agents.navigation.controller import VehiclePIDController
@@ -221,6 +224,90 @@ class LocalPlanner(object):
         self._vehicle_controller.set_offset(offset)
 
     def run_step(self, debug=False):
+        """
+        Execute one step of local planning which involves running the longitudinal and lateral PID controllers to
+        follow the waypoints trajectory.
+
+        :param debug: boolean flag to activate waypoints debugging
+        :return: control to be applied
+        """
+        if self._follow_speed_limits:
+            self._target_speed = self._vehicle.get_speed_limit()
+
+        # Add more waypoints too few in the horizon
+        if not self._stop_waypoint_creation and len(self._waypoints_queue) < self._min_waypoint_queue_length:
+            self._compute_next_waypoints(k=self._min_waypoint_queue_length)
+
+        # Purge the queue of obsolete waypoints
+        veh_location = self._vehicle.get_location()
+        vehicle_speed = get_speed(self._vehicle) / 3.6
+        self._min_distance = self._base_min_distance + self._distance_ratio * vehicle_speed
+
+        num_waypoint_removed = 0
+        for waypoint, _ in self._waypoints_queue:
+
+            if len(self._waypoints_queue) - num_waypoint_removed == 1:
+                min_distance = 1  # Don't remove the last waypoint until very close by
+            else:
+                min_distance = self._min_distance
+
+            if veh_location.distance(waypoint.transform.location) < min_distance:
+                num_waypoint_removed += 1
+            else:
+                break
+
+        if num_waypoint_removed > 0:
+            for _ in range(num_waypoint_removed):
+                self._waypoints_queue.popleft()
+
+        # Get the target waypoint and move using the PID controllers. Stop if no target waypoint
+        if len(self._waypoints_queue) == 0:
+            control = carla.VehicleControl()
+            control.steer = 0.0
+            control.throttle = 0.0
+            control.brake = 1.0
+            control.hand_brake = False
+            control.manual_gear_shift = False
+        else:
+            self.target_waypoint, self.target_road_option = self._waypoints_queue[0]
+            control = self._vehicle_controller.run_step(self._target_speed, self.target_waypoint)
+
+        if debug:
+            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+
+        return control
+    
+    def set_e2e_tracjectory(self, e2e_trajectory, debug=False):
+        transforms = []
+        if len(self._waypoints_queue) == 0:
+            control = carla.VehicleControl()
+            control.steer = 0
+            control.throttle = 0
+            control.brake = 1.0
+            control.hand_brake = False
+            control.manual_gear_shift = False
+        else:
+            # wp = self._waypoints_queue[0].transform
+            # self._waypoints_queue = []
+            logger.debug(f'current_state:{self._vehicle.get_location().x},{self._vehicle.get_location().y},{self._vehicle.get_location().z},{self._vehicle.get_transform().rotation.yaw}')
+            for pt in e2e_trajectory._trajectory:
+                transform = carla.Transform()
+                transform.location = carla.Location(x=pt.rear_axle.x,y=pt.rear_axle.y, z=0)
+                transform.rotation = carla.Rotation(yaw = np.rad2deg(pt.rear_axle.heading))
+                logger.debug(f"pt:{pt.rear_axle.x},{pt.rear_axle.y},{pt.rear_axle.heading}")
+                transforms.append(transform)
+                # self._waypoints_queue.append(wp)
+            # self.target_waypoint, self.target_road_option = self._waypoints_queue[0]
+            target_transform = transforms[0]
+            control = self._vehicle_controller.run_step(self._target_speed, target_transform)
+        if debug:
+            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+        return control, transforms
+                
+            
+            
+        
+    def run_step_e2e(self, debug=False):
         """
         Execute one step of local planning which involves running the longitudinal and lateral PID controllers to
         follow the waypoints trajectory.

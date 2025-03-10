@@ -84,11 +84,11 @@ class DtppMap(object):
         ids = [wp[0].lane_id for wp in routing]
         return list(set(ids))
 
-    def draw_dtpp_map(self, actor, bokeh: bool = True):
+    def draw_dtpp_map(self, actor, trajectory=None, bokeh: bool = True):
         if not bokeh:
             self._draw_map_top(self._routing)
         else:
-            self._draw_map_top_bokeh(self._routing, actor)
+            self._draw_map_top_bokeh(routing=self._routing, actor = actor, trajectory=trajectory)
 
     def _draw_map_top(self, routing, vehicle:carla.Actor=None):
         # from tmp_test.test_2_road_graph_and_routing import draw_map
@@ -174,8 +174,14 @@ class DtppMap(object):
                 fontdict={"fontsize": 14, "color": color, "fontweight": "bold"},
             )
         # plt.show()
+    def _draw_trajectory(self, p,  trajectory, color="pink"):
+        trj_x = [tsf.location.x for tsf in trajectory]
+        trj_y = [tsf.location.y for tsf in trajectory]
+        p.scatter(trj_x, trj_y, size=5, color=color, alpha=0.5, marker="o", line_width=20)
+        # p.line(trj_x, trj_y, line_width=2, color=color)
+        
 
-    def _draw_map_top_bokeh(self, routing, actor: carla.Actor=None):
+    def _draw_map_top_bokeh(self, routing, actor: carla.Actor=None, trajectory=None):
 
 
         p = figure(
@@ -219,14 +225,16 @@ class DtppMap(object):
         # 绘制候选车道线
         if actor:
             self.plot_candiate_lanes_bokeh(actor, p, colors)
+        if trajectory:
+            self._draw_trajectory(p, trajectory)
         show(p)
 
     def plot_candiate_lanes_bokeh(self, actor, p, colors):
         trim_lanes = self.get_candidate_paths(actor)
         # 遍历 trimmed_paths 并绘制每条路径
         for idx, path in enumerate(trim_lanes):
-            x = path[:, 0].tolist()
-            y = path[:, 1].tolist()
+            x = path[2][:, 0].tolist()
+            y = path[2][:, 1].tolist()
             # p.line(
             #     x,
             #     y,
@@ -502,7 +510,7 @@ class DtppMap(object):
         for path in candidate_paths:
             # 找到距离自车最近的路径点
             distances = cdist(ego_point, path[:, :2])
-            logger.debug(f'--- shape:{distances.shape}, distances: {distances}')
+            # logger.debug(f'--- shape:{distances.shape}, distances: {distances}')
             closest_idx = np.argmin(distances)
             closest_dis = distances[0, closest_idx]
             trimmed = path[closest_idx:]

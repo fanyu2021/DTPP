@@ -789,7 +789,8 @@ def game_loop(args):
         # destination = random.choice(spawn_points).location
         destination = spawn_points[259].location # TODO(fanyu): Only used for cycle test.
         agent.set_destination(destination)
-        agent.set_dtpp_map()
+        if args.agent == "Dtpp":
+            agent.set_dtpp_map()
         
         
 
