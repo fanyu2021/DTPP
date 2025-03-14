@@ -2,8 +2,8 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-02-20 17:01:12
-LastEditTime: 2025-03-05 20:24:44
-LastEditors: 范雨
+LastEditTime: 2025-03-14 12:31:15
+LastEditors: fanyu fantiming@yeah.net
 Description: 
 '''
 #!/usr/bin/env python
@@ -194,7 +194,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = spawn_points[189] if spawn_points else carla.Transform()
+            spawn_point = spawn_points[189] if len(spawn_points) > 189 else random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
             
@@ -628,8 +628,8 @@ class CameraManager(object):
         bound_z = 0.5 + self._parent.bounding_box.extent.z
         attachment = carla.AttachmentType
         self._camera_transforms = [
-            # (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=8.0)), attachment.SpringArmGhost), # defualt 视角
-            (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=24.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
+            (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=8.0)), attachment.SpringArmGhost), # defualt 视角
+            # (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=24.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
             (carla.Transform(carla.Location(x=+0.8*bound_x, y=+0.0*bound_y, z=1.3*bound_z)), attachment.Rigid),
             (carla.Transform(carla.Location(x=+1.9*bound_x, y=+1.0*bound_y, z=1.2*bound_z)), attachment.SpringArmGhost),
             (carla.Transform(carla.Location(x=-2.8*bound_x, y=+0.0*bound_y, z=4.6*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost),
@@ -755,10 +755,13 @@ def game_loop(args):
         if args.sync:
             settings = sim_world.get_settings()
             settings.synchronous_mode = True
-            settings.fixed_delta_seconds = 0.05
+            # settings.fixed_delta_seconds = 0.05
+            settings.fixed_delta_seconds = 0.1
+            
             sim_world.apply_settings(settings)
 
             traffic_manager.set_synchronous_mode(True)
+            logger.info(f"--- carla, settings.synchronous_mode = {args.sync}")
 
         display = pygame.display.set_mode(
             (args.width, args.height),
@@ -823,17 +826,18 @@ def game_loop(args):
             control = agent.run_step_e2e() if args.agent == "Dtpp" else agent.run_step(True)
             if not control:
                 logger.error("--- Control is not ready!")
+                # control = agent.run_step(True)
                 continue
             control.manual_gear_shift = False
             world.player.apply_control(control)
             
             # 计算剩余时间并休眠
             elapsed_time = time.time() - start_time
-            sleep_time = max(0, 0.1 - elapsed_time)
+            sleep_time = max(0, 0.06 - elapsed_time)
             # logger.info("--- time_diff: %.2f seconds" % (time.time() - last_frame_time_s))
             # last_frame_time_s = time.time()
             logger.info("Elapsed time: %.2f seconds, sleep time: %.2f seconds" % (elapsed_time, sleep_time))
-            time.sleep(sleep_time)
+            # time.sleep(sleep_time)
 
     finally:
 

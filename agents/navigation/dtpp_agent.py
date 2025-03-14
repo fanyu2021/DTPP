@@ -396,14 +396,14 @@ class DtppAgent(BasicAgent):
 
 
         # Tree policy planner        
-        try:
-            plan = self._carla_trajectory_planner.plan(self._iteration, self._dtpp_map, self._vehicle, features, 
-                                             traffic_light_lanes, traffic_light_lanes, self._dtpp_inputs.observation)
-            self._iteration += 1
-        except Exception as e:
-            print("Error in planning")
-            print(e)
-            plan = np.zeros((self._N_points, 3))
+        # try:
+        plan = self._carla_trajectory_planner.plan(self._iteration, self._dtpp_map, self._vehicle, features, 
+                                         traffic_light_lanes, traffic_light_lanes, self._dtpp_inputs.observation)
+        self._iteration += 1
+        # except Exception as e:
+        #     print("Error in planning")
+        #     print(e)
+        #     plan = np.zeros((self._N_points, 3))
             
         # Convert relative poses to absolute states and wrap in a trajectory object
         states = transform_predictions_to_states(plan, self._dtpp_inputs._ego_state_buffer, self._future_horizon, 0.1)
@@ -417,7 +417,8 @@ class DtppAgent(BasicAgent):
         target_speed = min([self._behavior.max_speed, self._speed_limit - self._behavior.speed_lim_dist])
         self._local_planner.set_speed(target_speed)
         control, transforms = self._local_planner.set_e2e_tracjectory(trajectory, debug=debug)
-        self._dtpp_map.draw_dtpp_map(actor=self._vehicle, trajectory=transforms)
+        # control, transforms = self._local_planner.get_transforms_from_states(states, debug=debug)
+        # self._dtpp_map.draw_dtpp_map(actor=self._vehicle, trajectory=transforms)
 
         return control
 

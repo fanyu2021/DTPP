@@ -270,10 +270,10 @@ class LocalPlanner(object):
             control.manual_gear_shift = False
         else:
             self.target_waypoint, self.target_road_option = self._waypoints_queue[0]
-            control = self._vehicle_controller.run_step(self._target_speed, self.target_waypoint)
+            control = self._vehicle_controller.run_step(self._target_speed, self.target_waypoint.transform)
 
         if debug:
-            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint.transform], 1.0)
 
         return control
     
@@ -289,17 +289,30 @@ class LocalPlanner(object):
         else:
             # wp = self._waypoints_queue[0].transform
             # self._waypoints_queue = []
-            logger.debug(f'current_state:{self._vehicle.get_location().x},{self._vehicle.get_location().y},{self._vehicle.get_location().z},{self._vehicle.get_transform().rotation.yaw}')
+            logger.debug(f'current_state:{self._vehicle.get_location().x},{self._vehicle.get_location().y},{self._vehicle.get_transform().rotation.yaw}')
             for pt in e2e_trajectory._trajectory:
                 transform = carla.Transform()
                 transform.location = carla.Location(x=pt.rear_axle.x,y=pt.rear_axle.y, z=0)
                 transform.rotation = carla.Rotation(yaw = np.rad2deg(pt.rear_axle.heading))
-                logger.debug(f"pt:{pt.rear_axle.x},{pt.rear_axle.y},{pt.rear_axle.heading}")
+                logger.debug(f"pt:{pt.rear_axle.x},{pt.rear_axle.y},{np.rad2deg(pt.rear_axle.heading)}")
                 transforms.append(transform)
                 # self._waypoints_queue.append(wp)
             # self.target_waypoint, self.target_road_option = self._waypoints_queue[0]
             target_transform = transforms[0]
             control = self._vehicle_controller.run_step(self._target_speed, target_transform)
+        if debug:
+            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+        return control, transforms
+    
+    def get_transforms_from_states(self, states, debug=False):
+        transforms = []
+        for state in states:
+            transform = carla.Transform()
+            transform.location = carla.Location(x=state.rear_axle.x,y=state.rear_axle.y, z=0)
+            transform.rotation = carla.Rotation(yaw = np.rad2deg(state.rear_axle.heading))
+            transforms.append(transform)
+        target_transform = transforms[0]
+        control = self._vehicle_controller.run_step(self._target_speed, target_transform)
         if debug:
             draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
         return control, transforms

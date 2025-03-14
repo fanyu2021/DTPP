@@ -304,6 +304,7 @@ class DtppMap(object):
 
     def _get_lane(self, patch: geom.Polygon) -> List[DtppMapObject]:
         dtpp_lanes: List[DtppMapObject] = []
+        logger.debug(f"--- function: {self._get_lane.__name__}")
         for lane in self._topology:
             # lane_line = [Point2D(wp.transform.location.x, wp.transform.location.y) for wp in lane['path']]
             # lane = [Point2D(wp.transform.location.x, wp.transform.location.y) for wp in lane['path']]
@@ -317,9 +318,22 @@ class DtppMap(object):
                     Point2D(wp.transform.location.x, wp.transform.location.y)
                     for wp in lane["path"]
                 ]
-                dtpp_lanes.append(
-                    DtppLane(lane["entry"].lane_id, lane_line)
-                )  # TODO(fanyu): 是否替换为 DtppMapObject
+                interval = 0.5
+                while len(lane_line) < 3:
+                    logger.warning(f"lane_line length is less than 2: {len(lane_line)}, stretch it!")
+                    # TODO(fanyu): 这里结合 routing 信息查找下一个点应该更合理, 而且要去掉已经加入的lane
+                    lane_line.append(Point2D(lane["exit"].transform.location.x, lane["exit"].transform.location.y))
+                    next_wp = lane["exit"].next(interval)[-1] # lane["path"][-1].next(interval)[-1]
+                    # while len(next_wps) * interval < max_length:
+                    #     next_lane_spt = next_wps[-1].next(interval)[-1] # TODO(fanyu): next找到的是一个list，暂时取最后一个元素
+                    #     next_wps_i = [next_lane_spt]+next_lane_spt.next_until_lane_end(interval)
+                    #     next_wps += next_wps_i
+                    next_lane_spt = next_wp.next_until_lane_end(interval)
+                    lane_line += [Point2D(wp.transform.location.x, wp.transform.location.y) for wp in next_lane_spt]
+                    
+                    
+                    
+                dtpp_lanes.append(DtppLane(lane["entry"].lane_id, lane_line))  # TODO(fanyu): 是否替换为 DtppMapObject
         return dtpp_lanes
 
     def _get_lane_connector(self, patch: geom.Polygon):
@@ -540,6 +554,10 @@ def get_distance_between_dtpp_lane_and_point(
     point: Point2D, map_object: Union[DtppLane, DtppCrossWalk, DtppRoutLane]
 ) -> float:
     if isinstance(map_object, DtppLane):
+        if len(map_object.mid_line) < 3:
+            logger.error(f"mid_lane points size < 3: {len(map_object.mid_line)}")
+            return float(geom.Point(point.x, point.y).distance(geom.Point(sum([pt.x for pt in map_object.mid_line])/len(map_object.mid_line),
+                                                                          sum([pt.y for pt in map_object.mid_line])/len(map_object.mid_line))))
         polygon = geom.Polygon([(pt.x, pt.y) for pt in map_object.mid_line]).buffer(0)
         return float(geom.Point(point.x, point.y).distance(polygon))
     if isinstance(map_object, DtppCrossWalk):

@@ -147,8 +147,11 @@ class SplinePlanner:
             self.v_grid = torch.linspace(v_min, v_max, 5).to(x0.device)
             trajs = self.gen_long_term_trajs(x0, tf, paths, dyn_filter=False)
 
+        if trajs is None:
+            print(f"No feasible trajectory")
+            return None
         # adjust timestep
-        if not is_root:
+        if (not is_root):
             trajs[:, :, -1] += self.horizon - self.first_stage_horizion
 
         # remove the first time step

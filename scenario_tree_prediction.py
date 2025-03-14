@@ -61,7 +61,13 @@ class Encoder(nn.Module):
 
         # attention fusion encoding
         input = torch.cat([encoded_actors, encoded_map_lanes, encoded_map_crosswalks], dim=1)
-        mask = torch.cat([actors_mask, lanes_mask, crosswalks_mask], dim=1)
+        """
+        TODO(fanyu): 这里的mask 为什么要拼接？
+        问题：输入的注意力掩码（mask）未使用布尔类型（torch.bool），而是其他类型（如 float32 或 int64），导致性能下降。
+        """
+        mask = torch.cat([actors_mask, lanes_mask, crosswalks_mask], dim=1) # .to(type=torch.bool) # 显示定义为bool类型
+        # fanyu: 增加断言，确保mask不为None
+        assert mask is not None, "Mask cannot be None"
         encoding = self.fusion_encoder(input, src_key_padding_mask=mask)
 
         # outputs
