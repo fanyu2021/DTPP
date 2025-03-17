@@ -51,11 +51,11 @@ def convert_to_model_inputs(data, device):
     tensor_data = {}
     for k, v in data.items():
         tensor_data[k] = v.float().unsqueeze(0).to(device)
-
     return tensor_data
 
 
 def extract_agent_tensor(tracked_objects, track_token_ids, object_types):
+
     agents = tracked_objects.get_tracked_objects_of_types(object_types)
     agent_types = []
     output = torch.zeros((len(agents), AgentInternalIndex.dim()), dtype=torch.float32)
@@ -175,22 +175,24 @@ def convert_absolute_quantities_to_relative(agent_state, ego_state, agent_type='
 
 
 def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, tracked_objects_types, num_agents):
-    agents_states_dim = Agents.agents_states_dim()
-    ego_history = past_ego_states
-    time_stamps = past_time_stamps
-    agents = past_tracked_objects
+    # num_agents = 20
+    # TODO：（fanyu）    # 为什么 past_tracked_objects_tensor_list 每个元素的维度比 past_tracked_objects_types 少一个？
+    agents_states_dim = Agents.agents_states_dim() # 8
+    ego_history = past_ego_states # [22 x 7] （包含最后一个元素，为自车当前位置）
+    time_stamps = past_time_stamps # [22], us(int)
+    agents = past_tracked_objects # list[22], 元素 [n x 8] (如 n=5,7,8...)
 
-    anchor_ego_state = ego_history[-1, :].squeeze().clone()
+    anchor_ego_state = ego_history[-1, :].squeeze().clone() # 去最后一个元素，去维度，[7]，深拷贝
     ego_tensor = convert_absolute_quantities_to_relative(ego_history, anchor_ego_state)
-    agent_history = filter_agents_tensor(agents, reverse=True)
-    agent_types = tracked_objects_types[-1]
+    agent_history = filter_agents_tensor(agents, reverse=True) # 过滤障碍物，reverse=True 只保留最后一帧出现的障碍物，格式与agents一致
+    agent_types = tracked_objects_types[-1] # list[22 x list[n]] 中的最后一个元素，包含不同的track类型
 
     if agent_history[-1].shape[0] == 0:
         # Return zero tensor when there are no agents in the scene
         agents_tensor = torch.zeros((len(agent_history), 0, agents_states_dim)).float()
     else:
         local_coords_agent_states = []
-        padded_agent_states = pad_agent_states(agent_history, reverse=True)
+        padded_agent_states = pad_agent_states(agent_history, reverse=True) # 反向填充，格式与agent_history一致
 
         for agent_state in padded_agent_states:
             local_coords_agent_states.append(convert_absolute_quantities_to_relative(agent_state, anchor_ego_state, 'agent'))
@@ -231,7 +233,7 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
 
 def get_neighbor_vector_set_map(
     map_api: AbstractMap,
-    map_features: List[str],
+    map_features: List[str], #  ['LANE', 'ROUTE_LANES', 'CROSSWALK']
     point: Point2D,
     radius: float,
     route_roadblock_ids: List[str],
@@ -257,7 +259,7 @@ def get_neighbor_vector_set_map(
 
     for feature_name in map_features:
         try:
-            feature_layers.append(VectorFeatureLayer[feature_name])
+            feature_layers.append(VectorFeatureLayer[feature_name]) #  ['LANE', 'ROUTE_LANES', 'CROSSWALK']
         except KeyError:
             raise ValueError(f"Object representation for layer: {feature_name} is unavailable")
 

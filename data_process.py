@@ -21,11 +21,11 @@ class DataProcessor(object):
         self._scenarios = scenarios
 
         self.past_time_horizon = 2 # [seconds]
-        self.num_past_poses = 10 * self.past_time_horizon 
+        self.num_past_poses = 10 * self.past_time_horizon # 10 x 2 = 20
         self.future_time_horizon = 8 # [seconds]
-        self.max_target_speed = 15 # [m/s]
+        self.max_target_speed = 15 # [m/s] # 15 m/s = 54 km/h
         self.first_stage_horizon = 3 # [seconds]
-        self.num_future_poses = 10 * self.future_time_horizon
+        self.num_future_poses = 10 * self.future_time_horizon # 10 x 8 = 80
         self.num_agents = 20
 
         self._map_features = ['LANE', 'ROUTE_LANES', 'CROSSWALK'] # name of map features to be extracted.
@@ -225,56 +225,72 @@ class DataProcessor(object):
         np.savez(f"{dir}/{data['map_name']}_{data['token']}.npz", **data)
 
     def work(self, save_dir, debug=False):
+        # 遍历所有场景数据（显示进度条）
         for scenario in tqdm(self._scenarios):
+            # 获取场景元数据
             map_name = scenario._map_name
             token = scenario.token
             self.scenario = scenario
             self.map_api = scenario.map_api
             print(scenario)
 
-            # get agent past tracks
+            # 获取自车历史轨迹（过去2秒）
             ego_agent_past, time_stamps_past = self.get_ego_agent()
+            # 获取邻居车辆历史轨迹（过去2秒）
             neighbor_agents_past, neighbor_agents_types = self.get_neighbor_agents()
+            # 处理历史轨迹数据（对齐时间戳，筛选重要车辆）
             ego_agent_past, neighbor_agents_past, neighbor_indices = \
                     agent_past_process(ego_agent_past, time_stamps_past, neighbor_agents_past, neighbor_agents_types, self.num_agents)
 
-            # get vector set map
+            # 获取高精地图向量化表示（车道线、路口等）
             vector_map = self.get_map()
 
-            # get agent future tracks
+            # 获取自车未来轨迹（未来8秒）
             ego_agent_future = self.get_ego_agent_future()
+            # 获取邻居车辆未来轨迹（未来8秒）
             neighbor_agents_future = self.get_neighbor_agents_future(neighbor_indices)
 
-            # get candidate trajectories
+            # 生成候选轨迹（两阶段轨迹规划）
             try:
+                # 第一阶段轨迹（前3秒）和第二阶段轨迹（后5秒）
                 first_stage_trajs, second_stage_trajs = self.get_ego_candidate_trajectories()
-            except:
+            except:  # 处理轨迹生成失败的情况
                 print(f"Error in {map_name}_{token}")
                 continue
 
-            # check if the candidate trajectories are valid
+            # 验证候选轨迹质量（与专家轨迹的误差检查）
+            # 计算第一阶段终点（3秒时）的误差
             expert_error_1 = np.linalg.norm(ego_agent_future[None, self.first_stage_horizon*10-1, :2] 
                                             - first_stage_trajs[:, -1, :2], axis=-1)
+            # 计算第二阶段终点（8秒时）的误差
             expert_error_2 = np.linalg.norm(ego_agent_future[None, self.future_time_horizon*10-1, :2] 
                                             - second_stage_trajs[:, -1, :2], axis=-1)       
+            # 过滤低质量轨迹（阈值分别为1.5米和4米）
             if np.min(expert_error_1) > 1.5 and np.min(expert_error_2) > 4:
                 continue
             
-            # sort the candidate trajectories
+            # 按误差排序候选轨迹（误差小的排前面）
             first_stage_trajs = first_stage_trajs[np.argsort(expert_error_1)]
             second_stage_trajs = second_stage_trajs[np.argsort(expert_error_2)]            
 
-            # gather data
-            data = {"map_name": map_name, "token": token, "ego_agent_past": ego_agent_past, "ego_agent_future": ego_agent_future, 
-                    "first_stage_ego_trajectory": first_stage_trajs, "second_stage_ego_trajectory": second_stage_trajs,
-                    "neighbor_agents_past": neighbor_agents_past, "neighbor_agents_future": neighbor_agents_future}
-            data.update(vector_map)
+            # 整合所有数据（包含地图、轨迹、车辆状态等信息）
+            data = {
+                "map_name": map_name,         # 地图名称
+                "token": token,               # 场景唯一标识
+                "ego_agent_past": ego_agent_past,         # 自车历史轨迹
+                "ego_agent_future": ego_agent_future,     # 自车未来轨迹
+                "first_stage_ego_trajectory": first_stage_trajs,  # 第一阶段候选轨迹
+                "second_stage_ego_trajectory": second_stage_trajs, # 第二阶段候选轨迹
+                "neighbor_agents_past": neighbor_agents_past,     # 邻居车辆历史轨迹
+                "neighbor_agents_future": neighbor_agents_future  # 邻居车辆未来轨迹
+            }
+            data.update(vector_map)  # 合并地图特征数据
 
-            # visualization
+            # 调试模式可视化显示
             if debug:
                 self.plot_scenario(data)
 
-            # save to disk
+            # 保存处理后的数据到文件
             self.save_to_disk(save_dir, data)
 
 
@@ -292,7 +308,7 @@ if __name__ == "__main__":
     # parser.add_argument('--total_scenarios', type=int, help='total number of scenarios', default=6000)
 
     args = parser.parse_args()
-    os.makedirs(args.save_path, exist_ok=True)
+    os.makedirs(args.save_path, exist_ok=True) # exist_ok=True 目录存在时候不会抛出异常
 
     map_version = "nuplan-maps-v1.0"
     scenario_mapping = ScenarioMapping(scenario_map=get_scenario_map(), subsample_ratio_override=0.5)
