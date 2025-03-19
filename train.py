@@ -12,12 +12,14 @@ from train_utils import *
 
 
 def train_epoch(data_loader, encoder, decoder, optimizer):
-    epoch_loss = []
-    epoch_metrics = []
+    epoch_loss = [] # 用于存储每个批次（batch）的损失值
+    epoch_metrics = [] # 用于存储每个批次（batch）的评估指标
     encoder.train()
     decoder.train()
 
+    # 初始化 tqdm 进度条，描述为"Training"，单位为"batch"，进度条将显示每个批次的损失值和进度
     with tqdm(data_loader, desc="Training", unit="batch") as data_epoch:
+        # 遍历 data_loader中的每个批次（batch）
         for batch in data_epoch:
             # prepare data for predictor
             inputs = {
@@ -30,6 +32,7 @@ def train_epoch(data_loader, encoder, decoder, optimizer):
 
             ego_gt_future = batch[5].to(args.device)
             neighbors_gt_future = batch[6].to(args.device)
+            # TODO(fanyu): 准备一个掩码，用于指示哪些邻居的未来轨迹是有效的，取前3个维度，不等于0的维度，然后将其转换为布尔类型的张量
             neighbors_future_valid = torch.ne(neighbors_gt_future[..., :3], 0)
 
             # encode
@@ -52,15 +55,17 @@ def train_epoch(data_loader, encoder, decoder, optimizer):
 
             # loss backward
             loss.backward()
+            # 限制编码器和解码器的梯度范围，防止梯度爆炸或消失
             torch.nn.utils.clip_grad_norm_(encoder.parameters(), 5.0)
             torch.nn.utils.clip_grad_norm_(decoder.parameters(), 5.0)
-            optimizer.step()
+            optimizer.step() # 更新模型参数，使损失函数最小化
 
             # compute metrics
             metrics = calc_metrics(second_stage_trajectory, neighbors_trajectories, scores, \
                                    ego_gt_future, neighbors_gt_future, neighbors_future_valid)
             epoch_metrics.append(metrics)
             epoch_loss.append(loss.item())
+            # 更新进度条的描述信息，显示当前批的平均损失值
             data_epoch.set_postfix(loss='{:.4f}'.format(np.mean(epoch_loss)))
 
     # show metrics
@@ -133,6 +138,7 @@ def valid_epoch(data_loader, encoder, decoder):
 def model_training(args):
     # Logging
     log_path = f"./training_log/{args.name}/"
+    # fanyu: exist_ok=True: if the directory already exists, do nothing
     os.makedirs(log_path, exist_ok=True)
     initLogging(log_file=log_path+'train.log')
 
