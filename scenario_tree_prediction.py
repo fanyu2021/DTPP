@@ -124,7 +124,16 @@ class Decoder(nn.Module):
             nn.ReLU(),           # 激活函数
             nn.Linear(64, 256)   # 输出256维特征
         )
-        self.agent_traj_decoder = AgentDecoder(max_time, max_branch, dim*2)  # 智能体轨迹解码器（输入512维）
+         # 智能体轨迹解码器（输入512维），之所以是2倍，原因如下：
+        """
+         先通过environment_decoder和ego_condition_decoder分别处理，然后将它们的输出在最后一
+         个维度拼接（torch.cat([env_decoding, ego_condition_decoding], dim=-1)）。这样，每
+         个解码的特征维度是256，拼接后变成512，正好对应dim*2。因此，AgentDecoder的输入维度是512，
+         即原始dim的两倍，因为融合了环境和自车条件的特征。因此，特征维度乘以2是因为在解码过程中，
+         每个agent的轨迹解码器需要同时考虑来自环境解码和自车条件解码的两个256维特征，拼接后得到512维
+         的输入，从而能够综合两种信息进行轨迹预测。
+         """
+        self.agent_traj_decoder = AgentDecoder(max_time, max_branch, dim*2) 
         self.ego_traj_decoder = nn.Sequential(  # 自车轨迹解码器
             nn.Linear(256, 256),  # 特征对齐
             nn.ELU(),            # 指数线性单元
@@ -154,51 +163,88 @@ class Decoder(nn.Module):
         return casual_mask
 
     def forward(self, encoder_outputs, ego_traj_inputs, agents_states, timesteps):
-        # get inputs
-        current_states = agents_states[:, :self._neighbors, -1]
-        encoding, encoding_mask = encoder_outputs['encoding'], encoder_outputs['mask']
-        ego_traj_ori_encoding = self.ego_traj_encoder(ego_traj_inputs)
-        branch_embedding = ego_traj_ori_encoding[:, :, timesteps-1]
-        ego_traj_ori_encoding = self.pooling_trajectory(ego_traj_ori_encoding)
-        time_embedding = self.time_embed(self.time_index)
-        tree_embedding = time_embedding[None, :, :, :] + branch_embedding[:, :, None, :]
-
-        # get mask
-        ego_traj_mask = torch.ne(ego_traj_inputs.sum(-1), 0)
-        ego_traj_mask = ego_traj_mask[:, :, ::(ego_traj_mask.shape[-1]//self._time)]
-        ego_traj_mask = torch.reshape(ego_traj_mask, (ego_traj_mask.shape[0], -1))
-        env_mask = torch.einsum('ij,ik->ijk', ego_traj_mask, encoding_mask.logical_not())
-        env_mask = torch.where(env_mask == 1, 0, -1e9)
-        env_mask = env_mask.repeat(self._nheads, 1, 1)
-        ego_condition_mask = self.casual_mask[None, :, :] * ego_traj_mask[:, :, None]
-        ego_condition_mask = torch.where(ego_condition_mask == 1, 0, -1e9)
-        ego_condition_mask = ego_condition_mask.repeat(self._nheads, 1, 1)
-
-        # decode
+        """
+        场景解码主流程（多模态轨迹预测与评分）
+        
+        输入参数：
+        encoder_outputs - 编码器输出，包含：
+            encoding: [B, S, 256] 融合后的场景特征（S=21参与者+车道线+斑马线总数）
+            mask: [B, S] 无效数据掩码
+        ego_traj_inputs - 自车轨迹输入 [B, T_hist, 6]（历史6维运动特征）
+        agents_states - 所有交通参与者状态 [B, N, 11]（当前时刻11维状态）
+        timesteps - 预测时间步控制参数
+        
+        处理流程：
+        1. 输入预处理 ----------------------------------------------------------
+        """
+        # 获取当前时刻智能体状态（截取前10个邻居）
+        current_states = agents_states[:, :self._neighbors, -1]  # [B, 10, 3]
+        
+        # 提取场景编码特征及掩码
+        encoding, encoding_mask = encoder_outputs['encoding'], encoder_outputs['mask']  # encoding[B,S,256], mask[B,S]
+        
+        # 自车轨迹编码（历史轨迹→高维特征）
+        ego_traj_ori_encoding = self.ego_traj_encoder(ego_traj_inputs)  # [B, T_hist, 256]
+        
+        # 构建树状解码的时空嵌入
+        branch_embedding = ego_traj_ori_encoding[:, :, timesteps-1]  # 按时间步截取分支嵌入 [B, M, 256]
+        ego_traj_ori_encoding = self.pooling_trajectory(ego_traj_ori_encoding)  # 轨迹特征池化 [B, T_pooled, 256]
+        time_embedding = self.time_embed(self.time_index)  # 时间步嵌入 [30分支, 8时间步, 256]
+        tree_embedding = time_embedding[None, :, :, :] + branch_embedding[:, :, None, :]  # 时空联合嵌入 [B, 30, 8, 256]
+        
+        """
+        2. 注意力掩码生成 ------------------------------------------------------
+        """
+        # 生成自车轨迹有效掩码（排除全零填充数据）
+        ego_traj_mask = torch.ne(ego_traj_inputs.sum(-1), 0)  # [B, T_hist]
+        ego_traj_mask = ego_traj_mask[:, :, ::(ego_traj_mask.shape[-1]//self._time)]  # 下采样掩码 [B, T_pooled]
+        ego_traj_mask = torch.reshape(ego_traj_mask, (ego_traj_mask.shape[0], -1))  # 展平 [B, T_pooled*M]
+        
+        # 环境注意力掩码（排除无效场景编码）
+        env_mask = torch.einsum('ij,ik->ijk', ego_traj_mask, encoding_mask.logical_not())  # [B, T_pooled*M, S]
+        env_mask = torch.where(env_mask == 1, 0, -1e9)  # 转换为softmax掩码格式
+        env_mask = env_mask.repeat(self._nheads, 1, 1)  # 扩展为多头掩码 [n_heads*B, T_pooled*M, S]
+        
+        # 自车条件掩码（因果掩码防止未来信息泄漏）
+        ego_condition_mask = self.casual_mask[None, :, :] * ego_traj_mask[:, :, None]  # [B, T_pooled*M, T_pooled*M]
+        ego_condition_mask = torch.where(ego_condition_mask == 1, 0, -1e9)  # 转换为softmax掩码
+        ego_condition_mask = ego_condition_mask.repeat(self._nheads, 1, 1)  # 扩展多头 [n_heads*B, T_pooled*M, T_pooled*M]
+        
+        """
+        3. 多分支轨迹解码 ------------------------------------------------------
+        """
         agents_trajecotries = []
+        # 遍历每个邻居车辆进行预测（10个邻居）
         for i in range(self._neighbors):
-            # learnable query
-            query = encoding[:, i+1, None, None] + tree_embedding
-            query = torch.reshape(query, (query.shape[0], -1, query.shape[-1]))
-      
-            # decode from environment inputs
-            env_decoding = self.environment_decoder(query, encoding, encoding, env_mask)
-
-            # decode from ego trajectory inputs
-            ego_traj_encoding = torch.reshape(ego_traj_ori_encoding, (ego_traj_ori_encoding.shape[0], -1, ego_traj_ori_encoding.shape[-1]))
+            # 构建可学习查询（当前车辆编码 + 时空嵌入）
+            query = encoding[:, i+1, None, None] + tree_embedding  # [B, 30分支, 8时间步, 256]
+            query = torch.reshape(query, (query.shape[0], -1, query.shape[-1]))  # 展平 [B, 240, 256]
+            
+            # 环境感知解码（关注道路结构、其他车辆等）
+            env_decoding = self.environment_decoder(query, encoding, encoding, env_mask)  # [B, 240, 256]
+            
+            # 自车条件解码（关注自车意图对当前车辆的影响）
+            ego_traj_encoding = torch.reshape(ego_traj_ori_encoding, 
+                (ego_traj_ori_encoding.shape[0], -1, ego_traj_ori_encoding.shape[-1]))  # [B, T_pooled*M, 256]
             ego_condition_decoding = self.ego_condition_decoder(query, ego_traj_encoding, ego_traj_encoding, ego_condition_mask)
-
-            # trajectory outputs
-            decoding = torch.cat([env_decoding, ego_condition_decoding], dim=-1)
-            trajectory = self.agent_traj_decoder(decoding, current_states[:, i])
+            
+            # 轨迹预测（融合环境与自车条件）
+            decoding = torch.cat([env_decoding, ego_condition_decoding], dim=-1)  # [B, 240, 512]
+            trajectory = self.agent_traj_decoder(decoding, current_states[:, i])  # [B, 30, 80, 3]
             agents_trajecotries.append(trajectory)
-
-        # score outputs
-        agents_trajecotries = torch.stack(agents_trajecotries, dim=2)
+        
+        """
+        4. 输出后处理 ----------------------------------------------------------
+        """
+        # 堆叠所有邻居预测结果
+        agents_trajecotries = torch.stack(agents_trajecotries, dim=2)  # [B, 30分支, 10邻居, 80点, 3]
+        
+        # 轨迹评分（计算各分支的合理性分数）
         scores, weights = self.scorer(ego_traj_inputs, encoding[:, 0], agents_trajecotries, current_states, timesteps)
-
-        # ego regularization
-        ego_traj_regularization = self.ego_traj_decoder(encoding[:, 0])
-        ego_traj_regularization = torch.reshape(ego_traj_regularization, (ego_traj_regularization.shape[0], 80, 3))
-
+        
+        # 自车轨迹正则化（约束自车预测轨迹的合理性）
+        ego_traj_regularization = self.ego_traj_decoder(encoding[:, 0])  # [B, 240]
+        ego_traj_regularization = torch.reshape(ego_traj_regularization, 
+            (ego_traj_regularization.shape[0], 80, 3))  # [B, 80点, 3]
+        
         return agents_trajecotries, scores, ego_traj_regularization, weights

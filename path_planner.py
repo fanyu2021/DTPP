@@ -278,15 +278,39 @@ class CubicSpline2D:
 
 
 def calc_spline_course(x, y, ds=0.1):
-    sp = CubicSpline2D(x, y)
-    s = list(np.arange(0, sp.s[-1], ds))
-
+    """ 二维三次样条插值路径生成器
+    
+    参数:
+    x -- 原始路径点的x坐标列表
+    y -- 原始路径点的y坐标列表
+    ds -- 路径采样间隔（单位：米，默认0.1米）
+    
+    返回:
+    rx -- 插值后的x坐标序列
+    ry -- 插值后的y坐标序列
+    ryaw -- 各点的航向角（弧度，-π~π）
+    rk -- 各点的曲率（1/m）
+    """
+    # 初始化二维三次样条曲线对象
+    sp = CubicSpline2D(x, y)  # 基于输入点创建参数化样条
+    
+    # 生成采样距离序列（从0到路径总长，间隔ds）
+    s = list(np.arange(0, sp.s[-1], ds))  # sp.s[-1]为路径总长度
+    
+    # 初始化输出容器
     rx, ry, ryaw, rk = [], [], [], []
+    
+    # 遍历所有采样点
     for i_s in s:
+        # 计算当前距离s对应的坐标
         ix, iy = sp.calc_position(i_s)
         rx.append(ix)
         ry.append(iy)
-        ryaw.append(sp.calc_yaw(i_s))
-        rk.append(sp.calc_curvature(i_s))
+        
+        # 计算航向角（切线方向）
+        ryaw.append(sp.calc_yaw(i_s))  # 使用atan2(dy, dx)计算角度
+        
+        # 计算曲率（基于参数方程二阶导数）
+        rk.append(sp.calc_curvature(i_s))  # 公式: (ddy*dx - ddx*dy)/(dx²+dy²)^1.5
 
     return rx, ry, ryaw, rk

@@ -37,8 +37,26 @@ class TrajTree:
         self.children += children
 
     def expand_children(self, paths, horizon, speed_limit, planner):
+        """ 扩展当前节点的子节点（轨迹分支）
+        
+        参数:
+        paths -- 候选路径列表（来自路径规划模块）
+        horizon -- 预测时间范围（秒）
+        speed_limit -- 当前道路限速（m/s）
+        planner -- 轨迹生成器实例
+        
+        流程:
+        1. 调用轨迹生成器生成多条候选轨迹
+        2. 将每条轨迹封装为轨迹树节点
+        3. 建立父子节点关系
+        """
+        # 生成多条候选轨迹（基于当前状态和路径约束）
         trajs = planner.gen_trajectories(self.state, horizon, paths, speed_limit, self.isroot())
+        
+        # 创建子节点（每个第一阶段轨迹作为一个独立分支）
         children = [TrajTree(traj, self, self.depth + 1) for traj in trajs]
+        
+        # 将子节点加入当前节点
         self.expand_set(children)
 
     def isroot(self):

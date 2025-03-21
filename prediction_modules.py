@@ -152,19 +152,53 @@ class VectorMapEncoder(nn.Module):
 
 class CrossAttention(nn.Module):
     def __init__(self, heads=8, dim=256, dropout=0.1):
+        # 跨模态注意力机制初始化
         super(CrossAttention, self).__init__()
-        self.cross_attention = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
-        self.norm_1 = nn.LayerNorm(dim)
-        self.norm_2 = nn.LayerNorm(dim)
-        self.ffn = nn.Sequential(nn.Linear(dim, dim*4), nn.GELU(), nn.Dropout(dropout), nn.Linear(dim*4, dim))
-        self.dropout = nn.Dropout(dropout)
+        
+        # 核心注意力模块配置
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=dim,        # 输入特征维度256
+            num_heads=heads,      # 8头注意力机制（256/8=32）
+            dropout=dropout,      # 注意力权重0.1的随机丢弃率
+            batch_first=True      # 输入格式为(batch, seq, feature)
+        )
+        
+        # 归一化层配置（Transformer标准结构），促进训练的稳定性
+        self.norm_1 = nn.LayerNorm(dim)  # 首层归一化（稳定注意力输出）
+        self.norm_2 = nn.LayerNorm(dim)  # 第二层归一化（稳定前馈输出）
+        
+        # 前馈神经网络（Position-wise FFN）
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim*4),  # 特征升维（256->1024）
+            nn.GELU(),             # 高斯误差线性单元（比ReLU更平滑）
+            nn.Dropout(dropout),   # 前馈层0.1随机丢弃
+            nn.Linear(dim*4, dim)  # 特征降维（1024->256）
+        )
+        
+        # 残差连接后的随机失活
+        self.dropout = nn.Dropout(dropout)  # 残差路径0.1丢弃率（正则化）
 
     def forward(self, query, key, value, mask=None):
-        attention_output, _ = self.cross_attention(query, key, value, attn_mask=mask)
-        attention_output = self.norm_1(attention_output)
-        linear_output = self.ffn(attention_output)
-        output = attention_output + self.dropout(linear_output)
-        output = self.norm_2(output)
+        # 跨模态注意力计算流程
+        # 步骤1：执行多头注意力计算（query与key-value对交互）
+        attention_output, _ = self.cross_attention(
+            query=query,         # 查询向量 [B, target_len, 256]
+            key=key,             # 键向量 [B, source_len, 256] 
+            value=value,         # 值向量 [B, source_len, 256]
+            attn_mask=mask       # 注意力掩码（屏蔽无效位置）
+        )
+        
+        # 步骤2：层归一化 + 残差连接（稳定注意力输出）
+        attention_output = self.norm_1(attention_output)  # [B, target_len, 256]
+        
+        # 步骤3：前馈神经网络（增强特征表达能力）
+        linear_output = self.ffn(attention_output)  # [B, target_len, 256]
+        
+        # 步骤4：残差连接（保留原始注意力特征）
+        output = attention_output + self.dropout(linear_output)  # 随机丢弃部分前馈输出
+        
+        # 步骤5：最终层归一化（规范化输出分布）
+        output = self.norm_2(output)  # [B, target_len, 256]
 
         return output
 
@@ -172,27 +206,122 @@ class CrossAttention(nn.Module):
 class AgentDecoder(nn.Module):
     def __init__(self, max_time, max_branch, dim):
         super(AgentDecoder, self).__init__()
-        self._max_time = max_time
-        self._max_branch = max_branch
-        self.traj_decoder = nn.Sequential(nn.Linear(dim, 128), nn.ELU(), nn.Linear(128, 3*10))
+        # 核心参数配置
+        self._max_time = max_time    # 预测时间步（默认8秒）
+        self._max_branch = max_branch  # 树状分支数（默认30分支）
+        
+        # 轨迹解码网络（将高维特征映射为轨迹坐标）
+        self.traj_decoder = nn.Sequential(
+            nn.Linear(dim, 128),     # 特征降维（512->128 减少计算量）
+            nn.ELU(),               # 指数线性单元（平衡梯度特性）
+            nn.Linear(128, 3*10)    # 输出轨迹点（3维x10个点：x,y,yaw）
+        )
 
     def forward(self, encoding, current_state):
-        encoding = torch.reshape(encoding, (encoding.shape[0], self._max_branch, self._max_time, 512))
-        agent_traj = self.traj_decoder(encoding).reshape(encoding.shape[0], self._max_branch, self._max_time*10, 3)
-        agent_traj += current_state[:, None, None, :3]
+        """
+        智能体轨迹解码流程（树状多模态预测）
+        
+        输入：
+        encoding: [B, M*T, 512] 融合后的场景特征 
+            - B: batch_size（批大小）
+            - M: 30分支（树状预测的候选分支数）
+            - T: 8时间步（预测总时长，如8秒）
+            - 512维特征 = 环境特征256 + 自车状态特征256
+        current_state: [B, 3] 当前状态（x坐标，y坐标，航向角yaw）
+
+        处理流程：
+        1. 特征重塑 → 构建树状预测结构
+            - 将扁平化的特征序列 [B, 240, 512] 重构为三维结构 [B,30,8,512]
+            - 30分支对应不同驾驶策略（如左转、直行、右变道等）
+            - 8时间步对应预测时间维度（每个分支的时序演化）
+
+        2. 轨迹解码 → 生成候选轨迹
+            - 通过全连接网络将512维特征映射为30维输出
+            - 30维输出分解为：10个轨迹点 × 3维（x,y,yaw）
+            - 最终形状 [B,30,80,3]（80=8秒×10点/秒）
+
+        3. 坐标转换 → 相对转绝对坐标系
+            - 解码得到的是相对于当前状态的位移量
+            - 通过广播机制将current_state加到所有预测轨迹点
+            - 最终输出绝对坐标系下的多模态预测结果
+        """
+        # 
+        # 输入参数说明：
+        # encoding: [B, M*T, 512] 融合后的场景特征（B: batch_size, M: 30分支, T: 8时间步）
+        # 之所以是512，是因为在Encoder中，我们将环境解码和自车条件轨迹解码的特征在最后一
+        # 个维度拼接, 进行条件预测。
+        # current_state: [B, 3] 智能体当前状态（x,y,yaw）
+        
+        # 步骤1：特征维度重塑（适配树状预测结构）
+        '''
+        原始维度：batch_size × (30×8) × 512  转换后：batch_size × 30 × 8 × 512
+        '''
+        encoding = torch.reshape(encoding, 
+            (encoding.shape[0], self._max_branch, self._max_time, 512))  # [B,30,8,512]
+        
+        # 步骤2：轨迹解码（生成相对坐标轨迹），输入为环境编码和自车轨迹编码
+        agent_traj = self.traj_decoder(encoding)  # [B,30,8,30]
+        agent_traj = agent_traj.reshape(
+            encoding.shape[0], self._max_branch, self._max_time*10, 3)  # [B,30,80,3]
+        
+        # 步骤3：坐标转换（相对坐标转绝对坐标）
+        # 将当前状态作为初始位置，广播到所有分支和时间步
+        agent_traj += current_state[:, None, None, :3]  # [B,30,80,3]
 
         return agent_traj
     
 
 class ScoreDecoder(nn.Module):
     def __init__(self, variable_cost=False):
+        """
+        轨迹评分解码器初始化（多目标代价计算）
+        
+        参数说明：
+        variable_cost - 是否启用可变代价权重（默认False使用固定权重）
+        
+        网络结构：
+        1. 交互特征编码器：将10维交互特征映射为256维
+           输入：10维交互特征（相对位置/速度/属性等）
+           结构：Linear(10->64) → ReLU → Linear(64->256)
+           
+        2. 交互特征解码器：提取4维潜在交互特征
+           结构：Linear(256->64) → ELU → Linear(64->4) → Sigmoid
+           输出：归一化的潜在特征（范围[0,1]）
+           Sigmoid作用：1. 归一化到[0,1]区间，2. 概率化输出
+           
+        3. 权重解码器：生成特征权重系数
+           结构：Linear(256->64) → ELU → Linear(64->8) → Softplus
+           输出：8维正权重（4个潜在特征权重 + 4个硬编码特征权重）
+           Softplus作用：1. 确保权重非负，2. 平滑梯度特性，3. 动态范围可控
+                a.相比ReLU，Softplus更平滑，有助于梯度传播，防止权重值突然归零（避免特征被完全忽略）;
+                b.与Sigmoid相比，不限制权重的上限值（适合需要大权重的场景,允许权重在(0, +∞)范围内连续变化;
+                c.设计必要性：当计算轨迹评分时，需要通过加权求和融合不同特征（如碰撞风险、行驶舒适性等）。负权重
+                    会导致反向贡献，这与实际物理意义相悖。Softplus确保所有特征权重都是正向的，符合"代价越大分数
+                    越低"的设计逻辑。
+        """
         super(ScoreDecoder, self).__init__()
-        self._n_latent_features = 4
-        self._variable_cost = variable_cost
-
-        self.interaction_feature_encoder = nn.Sequential(nn.Linear(10, 64), nn.ReLU(), nn.Linear(64, 256))
-        self.interaction_feature_decoder = nn.Sequential(nn.Linear(256, 64), nn.ELU(), nn.Linear(64, self._n_latent_features), nn.Sigmoid())
-        self.weights_decoder = nn.Sequential(nn.Linear(256, 64), nn.ELU(), nn.Linear(64, self._n_latent_features+4), nn.Softplus())
+        # 核心参数配置
+        self._n_latent_features = 4    # 潜在交互特征维度
+        self._variable_cost = variable_cost  # 是否启用可变代价计算
+        
+        # 特征编码解码网络
+        self.interaction_feature_encoder = nn.Sequential(
+            nn.Linear(10, 64),    # 输入10维交互特征（相对位置/速度/属性等）
+            nn.ReLU(),            # 保证特征非负性
+            nn.Linear(64, 256)    # 编码为256维高级特征
+        )
+        self.interaction_feature_decoder = nn.Sequential(
+            nn.Linear(256, 64),   # 特征降维
+            nn.ELU(),             # 平衡梯度特性
+            nn.Linear(64, self._n_latent_features),  # 输出4维潜在特征
+            nn.Sigmoid()          # 归一化潜在特征值到[0,1]
+        )
+        self.weights_decoder = nn.Sequential(
+            nn.Linear(256, 64),   # 接收场景编码特征
+            nn.ELU(),
+            nn.Linear(64, self._n_latent_features+4),  # 输出8维权重（4+4）
+            nn.Softplus()         # 保证权重值为正数
+        )
 
     def get_hardcoded_features(self, ego_traj, max_time):
         # ego_traj: B, M, T, 6

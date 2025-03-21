@@ -4,27 +4,35 @@ import scipy.special
 
 
 def calc_4points_bezier_path(sx, sy, syaw, ex, ey, eyaw, offset, n_points=100):
+    """ 四阶贝塞尔曲线路径生成器
+    
+    参数:
+    sx -- 起点x坐标（自车后轴中心）
+    sy -- 起点y坐标
+    syaw -- 起点航向角（弧度）
+    ex -- 终点x坐标（目标路径点）
+    ey -- 终点y坐标
+    eyaw -- 终点航向角（弧度）
+    offset -- 曲线控制点缩放系数（值越大曲线越平缓）
+    n_points -- 路径点数量（默认100点）
+    
+    返回:
+    路径点数组（n_points×2），控制点数组（4×2）
     """
-    Compute control points and path given start and end position.
-
-    :param sx: (float) x-coordinate of the starting point
-    :param sy: (float) y-coordinate of the starting point
-    :param syaw: (float) yaw angle at start
-    :param ex: (float) x-coordinate of the ending point
-    :param ey: (float) y-coordinate of the ending point
-    :param eyaw: (float) yaw angle at the end
-    :param offset: (float)
-    :return: (numpy array, numpy array)
-    """
-    dist = np.hypot(sx - ex, sy - ey) / offset
-    control_points = np.array(
-        [[sx, sy],
-         [sx + dist * np.cos(syaw), sy + dist * np.sin(syaw)],
-         [ex - dist * np.cos(eyaw), ey - dist * np.sin(eyaw)],
-         [ex, ey]])
-
+    # 计算控制点间距（基于起点到终点的直线距离）
+    dist = np.hypot(sx - ex, sy - ey) / offset  # offset=3时，控制点间距约为总距离的1/3
+    
+    # 构建四阶贝塞尔控制点（起点方向控制点+终点方向控制点）
+    control_points = np.array([
+        [sx, sy],  # 起点
+        [sx + dist * np.cos(syaw), sy + dist * np.sin(syaw)],  # 沿起点航向延伸
+        [ex - dist * np.cos(eyaw), ey - dist * np.sin(eyaw)],  # 沿终点航向反向延伸
+        [ex, ey]   # 终点
+    ])
+    
+    # 生成贝塞尔曲线路径
     path = calc_bezier_path(control_points, n_points=n_points)
-
+    
     return path, control_points
 
 

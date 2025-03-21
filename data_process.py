@@ -117,77 +117,95 @@ class DataProcessor(object):
         return agent_futures
     
     def get_ego_candidate_trajectories(self):
+        """ 生成自车候选轨迹树（两阶段轨迹规划）
+        
+        返回:
+        first_trajs: [N, 30, 7] 第一阶段候选轨迹（前3秒）
+        second_trajs: [M, 50, 7] 第二阶段候选轨迹（后5秒）
+        """
+        # 初始化样条规划器（支持两阶段轨迹生成）
         planner = SplinePlanner(self.first_stage_horizon, self.future_time_horizon)
 
-        # Gather information about the environment
-        route_roadblock_ids = self.scenario.get_route_roadblock_ids()
-        observation = self.scenario.get_tracked_objects_at_iteration(0)
-        ego_state = self.scenario.initial_ego_state
+        # 环境信息采集 --------------------------------------------------
+        # 获取导航路径的道路块ID序列和初始观测
+        route_roadblock_ids = self.scenario.get_route_roadblock_ids()  # 导航路径上的道路块ID
+        observation = self.scenario.get_tracked_objects_at_iteration(0)  # 当前时刻环境观测数据
+        ego_state = self.scenario.initial_ego_state  # 自车初始状态（位置、速度等）
+        
+        # 构建路由道路块对象列表（ROADBLOCK和ROADBLOCK_CONNECTOR）
         route_roadblocks = []
-
         for id_ in route_roadblock_ids:
             block = self.map_api.get_map_object(id_, SemanticMapLayer.ROADBLOCK)
             block = block or self.map_api.get_map_object(id_, SemanticMapLayer.ROADBLOCK_CONNECTOR)
             route_roadblocks.append(block)
-
+        
+        # 提取候选车道边缘ID（用于路径生成）
         candidate_lane_edge_ids = [edge.id for block in route_roadblocks if block for edge in block.interior_edges]
 
-        # Get obstacles
+        # 障碍物检测 --------------------------------------------------
         object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
                         TrackedObjectType.CZONE_SIGN, TrackedObjectType.TRAFFIC_CONE,
                         TrackedObjectType.GENERIC_OBJECT]
         objects = observation.tracked_objects.get_tracked_objects_of_types(object_types)
+        
+        # 筛选30米范围内的有效障碍物（静止车辆和其他障碍物）
         obstacles = []
         for obj in objects:
-            if obj.box.geometry.distance(ego_state.car_footprint.geometry) > 30:
+            if obj.box.geometry.distance(ego_state.car_footprint.geometry) > 30:  # 距离过滤
                 continue
-
+            # 仅考虑静止车辆（速度<0.01m/s）和其他类型障碍物
             if obj.tracked_object_type == TrackedObjectType.VEHICLE:
                 if obj.velocity.magnitude() < 0.01:
                     obstacles.append(obj.box)
             else:
                 obstacles.append(obj.box)
 
-        # Get starting block
+        # 起始位置定位 --------------------------------------------------
+        # 在路由道路块中寻找距离最近的起始块
         starting_block = None
-        cur_point = (self.scenario.initial_ego_state.rear_axle.x, self.scenario.initial_ego_state.rear_axle.y)
-        closest_distance = math.inf
-
+        cur_point = (ego_state.rear_axle.x, ego_state.rear_axle.y)  # 自车后轴坐标
+        closest_distance = math.inf  # 初始化最小距离
+        
+        # 遍历所有路由道路块寻找最近点
         for block in route_roadblocks:
             for edge in block.interior_edges:
                 distance = edge.polygon.distance(Point(cur_point))
                 if distance < closest_distance:
                     starting_block = block
                     closest_distance = distance
-
-            if np.isclose(closest_distance, 0):
+            if np.isclose(closest_distance, 0):  # 找到零距离匹配时提前退出，默认相对容差为1e-05，绝对容差为1e-08
                 break
 
-        # Get starting edges
-        edges = get_candidate_edges(ego_state, starting_block)
-        candidate_paths = get_candidate_paths(edges, ego_state, candidate_lane_edge_ids)
-        paths = generate_paths(candidate_paths, obstacles, ego_state)
-        speed_limit = edges[0].speed_limit_mps or self.max_target_speed
+        # 路径生成 --------------------------------------------------
+        # 获取候选车道边缘和可行路径
+        edges = get_candidate_edges(ego_state, starting_block)  # 基于起始块获取可行驶车道
+        candidate_paths = get_candidate_paths(edges, ego_state, candidate_lane_edge_ids)  # 生成候选路径
+        paths = generate_paths(candidate_paths, obstacles, ego_state)  # 碰撞检测后的有效路径
+        speed_limit = edges[0].speed_limit_mps or self.max_target_speed  # 车道限速或默认最高速
 
-        # Initial tree (root node)
-        # traj: x, y, heading, velocity, acceleration, curvature, time
-        state = torch.tensor([[0, 0, 0, ego_state.dynamic_car_state.rear_axle_velocity_2d.x, 
-                               ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]])
-        tree = TrajTree(state, None, 0)
+        # 轨迹树构建 --------------------------------------------------
+        # 初始化轨迹树根节点（当前状态参数：x,y,航向,速度,加速度,曲率,时间）
+        state = torch.tensor([[0, 0, 0, 
+                              ego_state.dynamic_car_state.rear_axle_velocity_2d.x, 
+                              ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 
+                              0, 0]])
+        tree = TrajTree(traj=state, parent=None, depth=0)  # 创建轨迹树，这时候只有root节点
 
-        # 1st stage expand
+        # 第一阶段轨迹扩展（生成前3秒候选轨迹）
         tree.expand_children(paths, self.first_stage_horizon, speed_limit, planner)
-        leaves = TrajTree.get_children(tree)
+        leaves = TrajTree.get_children(tree)  # 获取叶节点轨迹
         first_trajs = np.stack([leaf.total_traj[1:].numpy() for leaf in leaves]).astype(np.float32)
 
-        # 2nd stage expand
+        # 第二阶段轨迹扩展（生成后续5秒候选轨迹）
         for leaf in leaves:
             leaf.expand_children(paths, self.future_time_horizon - self.first_stage_horizon, speed_limit, planner)
-
-        # Get all leaves
+        
+        # 获取最终叶节点轨迹
         leaves = TrajTree.get_children(leaves)
         second_trajs = np.stack([leaf.total_traj[1:].numpy() for leaf in leaves]).astype(np.float32)
         
+        # first_trajs: [N, 30, 7] 短期候选轨迹集
+        # second_trajs: [M, 50, 7] 长期候选轨迹集
         return first_trajs, second_trajs
 
     def plot_scenario(self, data):

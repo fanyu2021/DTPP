@@ -498,31 +498,48 @@ def polyline_process(polylines, avails, traffic_light=None):
 
 ########## Path planning functions ##########
 def get_candidate_paths(edges, ego_state, candidate_lane_edge_ids):
-    # get all paths
+    """ 生成候选车道连接路径集合
+    
+    参数:
+    edges -- 起始车道边缘列表
+    ego_state -- 自车当前状态
+    candidate_lane_edge_ids -- 候选车道边缘ID集合
+    
+    返回:
+    paths -- 筛选后的候选路径列表（元素为元组：路径长度，距离，路径坐标）
+    """
+    # 通过深度优先搜索生成初始路径树
     paths = []
     for edge in edges:
+        # 递归搜索可达车道（最大搜索深度由MAX_LEN控制）
         paths.extend(depth_first_search(edge, candidate_lane_edge_ids))
 
-    # extract path polyline
+    # 路径几何信息提取 --------------------------------------------------
     candidate_paths = []
-
     for i, path in enumerate(paths):
         path_polyline = []
+        # 拼接所有边缘的离散路径点
         for edge in path:
             path_polyline.extend(edge.baseline_path.discrete_path)
-
+        
+        # 路径预处理（有效性检查/坐标转换）
         path_polyline = check_path(np.array(path_to_linestring(path_polyline).coords))
+        
+        # 计算自车到路径的最近距离，并截取前方路径
         dist_to_ego = scipy.spatial.distance.cdist([(ego_state.rear_axle.x, ego_state.rear_axle.y)], path_polyline)
-        path_polyline = path_polyline[dist_to_ego.argmin():]
-        if len(path_polyline) < 3:
+        path_polyline = path_polyline[dist_to_ego.argmin():]  # 保留自车位置之后的路径
+        
+        if len(path_polyline) < 3:  # 过滤过短路径
             continue
 
+        # 路径参数计算（0.25为离散路径点间距，假设单位为米）
         path_len = len(path_polyline) * 0.25
-        polyline_heading = calculate_path_heading(path_polyline)
+        polyline_heading = calculate_path_heading(path_polyline)  # 计算各点航向角
         path_polyline = np.stack([path_polyline[:, 0], path_polyline[:, 1], polyline_heading], axis=1)
         candidate_paths.append((path_len, dist_to_ego.min(), path_polyline))
 
-    # trim paths by length
+    # 路径长度筛选 --------------------------------------------------
+    # 保留长度超过最大允许路径一半的候选路径
     max_path_len = max([v[0] for v in candidate_paths])
     acceptable_path_len = MAX_LEN/2 if max_path_len > MAX_LEN/2 else max_path_len
     paths = [v for v in candidate_paths if v[0] >= acceptable_path_len]
@@ -531,69 +548,121 @@ def get_candidate_paths(edges, ego_state, candidate_lane_edge_ids):
 
 
 def generate_paths(paths, obstacles, ego_state):
+    """ 生成候选路径并进行多目标优化
+    
+    参数:
+    paths -- 原始候选路径列表（元素为元组：路径长度，横向偏移，路径坐标）
+    obstacles -- 障碍物列表
+    ego_state -- 自车当前状态
+    
+    返回:
+    经过筛选和优化的前3条候选路径
+    """
     new_paths = []
-    path_distance = []
+    path_distance = []  # 记录原始路径的横向偏移量
+    
+    # 路径采样与贝塞尔曲线生成 --------------------------------------------------
     for (path_len, dist, path_polyline) in paths:
-        if len(path_polyline) > 81:
-            sampled_index = np.array([5, 10, 15, 20]) * 4
-        elif len(path_polyline) > 61:
+        # 动态确定采样间隔（路径越长采样点越稀疏）
+        if len(path_polyline) > 81:    # 约20米轨迹（假设每点0.25米，4点/米）
+            sampled_index = np.array([5, 10, 15, 20]) * 4  # 采样5米/10米/15米/20米位置
+        elif len(path_polyline) > 61:  # 约15米轨迹
             sampled_index = np.array([5, 10, 15]) * 4
-        elif len(path_polyline) > 41:
+        elif len(path_polyline) > 41:  # 约10米轨迹
             sampled_index = np.array([5, 10]) * 4
-        elif len(path_polyline) > 21:
-            sampled_index = [20]
-        else:
-            sampled_index = [1]
-     
+        elif len(path_polyline) > 21:  # 约5米轨迹
+            sampled_index = [20]       # 仅采样5米位置
+        else:                          # 短路径
+            sampled_index = [1]        # 直接使用第一个点
+
+        # 生成两阶段路径（贝塞尔曲线过渡+原始路径跟随）
         target_states = path_polyline[sampled_index].tolist()
         for j, state in enumerate(target_states):
-            first_stage_path = calc_4points_bezier_path(ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading,
-                                                        state[0], state[1], state[2], 3, sampled_index[j])[0]
+            # 第一阶段：4点贝塞尔曲线连接当前位姿到目标点（3秒过渡）
+            first_stage_path = calc_4points_bezier_path(
+                ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading,
+                state[0], state[1], state[2], 3, sampled_index[j]
+            )[0]
+            
+            # 第二阶段：直接沿用原始路径后续点
             second_stage_path = path_polyline[sampled_index[j]+1:, :2]
-            path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
-            new_paths.append(path_polyline)  
-            path_distance.append(dist)   
+            
+            # 拼接完整路径
+            combined_path = np.concatenate([first_stage_path, second_stage_path], axis=0)
+            new_paths.append(combined_path)
+            path_distance.append(dist)
 
-    # evaluate paths
+    # 多目标代价评估 --------------------------------------------------
     candiate_paths = {}
     for path, dist in zip(new_paths, path_distance):
+        # 代价函数包含：最大曲率、横向偏移、障碍物风险
         cost = calculate_cost(path, dist, obstacles)
         candiate_paths[cost] = path
 
-    # sort paths by cost
+    # 路径后处理与结果筛选 --------------------------------------------------
     candidate_paths = []
+    # 选择代价最低的3条路径
     for cost in sorted(candiate_paths.keys())[:3]:
         path = candiate_paths[cost]
-        path = post_process(path, ego_state)
-        candidate_paths.append(path)
+        # 坐标转换与样条插值（每0.25*10=2.5米取一个点，进行样条插值生成0.1m间隔的平滑轨迹）
+        processed_path = post_process(path, ego_state)
+        candidate_paths.append(processed_path)
 
     return candidate_paths
-    
+
+
 def calculate_cost(path, dist, obstacles):
-    # path curvature
-    curvature = calculate_path_curvature(path[0:100])
-    curvature = np.max(curvature)
-
-    # lane change
-    lane_change = dist
-
-    # check obstacles
-    obstacles = check_obstacles(path[0:100:10], obstacles)
+    """ 多目标路径代价计算函数
+    
+    参数:
+    path -- 候选路径坐标（自车坐标系，N×2数组）
+    dist -- 路径横向偏移量（自车与候选路径投影的偏离距离）
+    obstacles -- 障碍物列表
+    
+    返回:
+    综合代价值（值越小路径越优）
+    """
+    # 曲率代价（取路径前100米的最大曲率）
+    curvature = calculate_path_curvature(path[0:100])  # 前100米路径曲率计算
+    curvature = np.max(curvature)  # 取最大曲率值
+    
+    # 车道偏移代价（保持车道的倾向性）
+    lane_change = dist  # 距离参考线越远代价越高
+    
+    # 障碍物风险代价（检查路径前100米，每隔10点采样）
+    obstacles_risk = check_obstacles(path[0:100:10], obstacles)  # 返回0（安全）或1（有碰撞风险）
         
-    # final cost
-    cost = 10 * obstacles + 1 * lane_change  + 0.1 * curvature
+    # 加权综合代价（权重系数经实际场景调优）
+    cost = 10 * obstacles_risk + 1 * lane_change + 0.1 * curvature
+    # 障碍物风险 > 车道保持 > 行驶舒适性 的优先级
 
     return cost
 
 def post_process(path, ego_state):
+    """ 路径后处理：坐标转换与样条插值优化
+    
+    参数:
+    path -- 原始路径坐标（全局坐标系）
+    ego_state -- 自车当前状态
+    
+    返回:
+    平滑后的参考路径（自车坐标系，含曲率信息）
+    """
+    # 坐标系转换（全局->自车）
     path = transform_to_ego_frame(path, ego_state)
+    
+    # 稀疏采样（每10个点取一个，约10*0.25 = 2.5米间隔）
     index = np.arange(0, len(path), 10)
-    x = path[:, 0][index]
-    y = path[:, 1][index]
+    x = path[:, 0][index]  # 提取稀疏点的x坐标
+    y = path[:, 1][index]  # 提取稀疏点的y坐标
 
-    # spline interpolation
+    # 三次样条插值（生成0.1米间隔的平滑路径）
     rx, ry, ryaw, rk = calc_spline_course(x, y)
+    
+    # 构建结构化路径数据 [x, y, heading, curvature]
     spline_path = np.stack([rx, ry, ryaw, rk], axis=1)
+    
+    # 截取最大允许长度（MAX_LEN=120米 * 10点/米），因为点间隔为0.1米，所以每米10个点
     ref_path = spline_path[:MAX_LEN*10]
 
     return ref_path
@@ -619,44 +688,76 @@ def check_obstacles(path, obstacles):
 
 
 def get_candidate_edges(ego_state, starting_block):
-    edges = []
-    edges_distance = []
-    ego_point = (ego_state.rear_axle.x, ego_state.rear_axle.y)
+    """ 获取起始道路块内可行的候选车道边缘
+    
+    参数:
+    ego_state -- 自车状态对象（包含位置、速度等信息）
+    starting_block -- 起始道路块对象（包含多个车道边缘）
+    
+    返回:
+    edges -- 候选车道边缘列表（至少包含一个最近边缘）
+    """
+    edges = []          # 候选车道边缘列表
+    edges_distance = [] # 各边缘到自车的距离记录
+    ego_point = (ego_state.rear_axle.x, ego_state.rear_axle.y)  # 自车后轴中心坐标
 
+    # 遍历起始块的所有内部车道边缘
     for edge in starting_block.interior_edges:
-        edges_distance.append(edge.polygon.distance(Point(ego_point)))
-        if edge.polygon.distance(Point(ego_point)) < 4:
-            edges.append(edge)
+        # 计算当前边缘多边形到自车的距离
+        edge_distance = edge.polygon.distance(Point(ego_point))
+        edges_distance.append(edge_distance)
         
-    # if no edge is close to ego, use the closest edge
+        # 筛选4米范围内的车道边缘（约两个车道宽度）
+        if edge_distance < 4:
+            edges.append(edge)
+    
+    # 兜底逻辑：当没有近距离边缘时，选择最近的一个
     if len(edges) == 0:
-        edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
+        closest_index = np.argmin(edges_distance)  # 找最小距离的索引
+        edges.append(starting_block.interior_edges[closest_index])
 
     return edges
 
 
 def depth_first_search(starting_edge, candidate_lane_edge_ids, target_depth=MAX_LEN, depth=0):
+    """ 深度优先搜索生成候选车道连接路径
+    
+    参数:
+    starting_edge -- 起始车道边缘对象
+    candidate_lane_edge_ids -- 候选车道边缘ID集合（白名单过滤）
+    target_depth -- 最大路径长度（默认MAX_LEN=120米）
+    depth -- 当前累计路径深度（初始为0）
+    
+    返回:
+    路径列表，每个元素为车道边缘序列（包含起始边缘）
+    """
+    # 终止条件：达到最大搜索深度
     if depth >= target_depth:
-        return [[starting_edge]]
+        return [[starting_edge]]  # 返回当前路径的最终形态
     else:
-        traversed_edges = []
+        traversed_edges = []  # 存储所有遍历路径
+        # 获取有效出边（通过白名单过滤），当前车道的后继车道，这里只搜了1层
         child_edges = [edge for edge in starting_edge.outgoing_edges if edge.id in candidate_lane_edge_ids]
 
+        # 递归搜索子节点
         if child_edges:
             for child in child_edges:
+                # 计算当前边缘长度（离散路径点数 * 0.25米/点）
                 edge_len = len(child.baseline_path.discrete_path) * 0.25
+                # 累计路径深度并递归搜索
                 traversed_edges.extend(depth_first_search(child, candidate_lane_edge_ids, depth=depth+edge_len))
 
+        # 终止条件：无后续可行路径
         if len(traversed_edges) == 0:
-            return [[starting_edge]]
+            return [[starting_edge]]  # 返回仅包含起始边缘的路径
 
+        # 路径组合：将当前边缘与所有子路径拼接
         edges_to_return = []
-
         for edge_seq in traversed_edges:
             edges_to_return.append([starting_edge] + edge_seq)
                     
         return edges_to_return
-    
+
 
 def transform_to_ego_frame(path, ego_state):
     ego_x, ego_y, ego_h = ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading
