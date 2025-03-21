@@ -25,6 +25,7 @@ def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     i = (s / 0.1).long()
 
     if i[-1] > path.shape[0] - 1:
+        print(f'--- i[-1]: {i[-1]}, path.shape[0] - 1: {path.shape[0] - 1}')
         return
 
     x = path[i, 0]
@@ -79,15 +80,45 @@ class SplinePlanner:
 
         return trajs
     
+    def plot_paths(self, paths):
+        for path in paths:
+            x = [pt[0] for pt in path]
+            y = [pt[1] for pt in path]
+            plt.plot(x, y)
+            plt.show()
+
+    def write_paths_json(self, paths):
+        import json
+
+        traj = {}
+        trajs = []
+        for path in paths:
+            traj['x'] = [pt[0] for pt in path]
+            traj['y'] = [pt[1] for pt in path]
+            trajs.append(traj)
+
+        json_str = json.dumps(trajs)
+        byte_data = json_str.encode()
+
+        # 打开文件，使用 'w' 模式表示写入        
+        # 使用 write 方法写入内容
+        with open('debug/paths_json.bin', 'wb') as file:
+            # 将字典转换为 JSON 字符串
+            file.write(byte_data)
+
+
+
+    
     def gen_long_term_trajs(self, x0, tf, paths, dyn_filter):
         xf_set = []
         trajs = []
-        
         # generate speed profile and trajectories
         for path in paths:
             path = torch.from_numpy(path).to(x0.device).type(torch.float)
             dist = torch.norm(path[:, :2] - x0[:2], dim=1)
+            print(f'dist: {dist}')
             if dist.min() > 0.1:
+                print("--- all the paths is not on current pos!")
                 continue
             
             offset = torch.argmin(dist) * 0.1
@@ -95,6 +126,7 @@ class SplinePlanner:
             for v in self.v_grid:
                 traj = self.calc_trajectory(x0[3], x0[4], v, tf, path, (self.horizon-self.first_stage_horizion)*10, offset) # [x, y, yaw, v, a, r, t]
                 if traj is None:
+                    print('--- calculate trajectory failed!')
                     continue
 
                 xf = traj[-1, :2]
@@ -106,6 +138,8 @@ class SplinePlanner:
                     trajs.append(traj)
 
         if len(trajs) == 0:
+            self.write_paths_json(paths)
+            print(f'len(trajs) == 0')
             return
         else:
             trajs = torch.stack(trajs)
@@ -141,15 +175,18 @@ class SplinePlanner:
             v_max = min(v0 + 2.4 * tf, speed_limit)
             self.v_grid = torch.linspace(v_min, v_max, 10).to(x0.device)
             trajs = self.gen_short_term_trajs(x0, tf, paths, dyn_filter=False)
+            assert trajs is not None, "No feasible short term trajectory"
         else:
             v_min = max(v0 - tf, 0.0)
             v_max = min(v0 + tf, speed_limit)
+            print(f"v_min: {v_min}, v_max: {v_max}, v0: {v0}, tf: {tf}, speed_limit: {speed_limit}")
             self.v_grid = torch.linspace(v_min, v_max, 5).to(x0.device)
             trajs = self.gen_long_term_trajs(x0, tf, paths, dyn_filter=False)
+            assert trajs is not None, "No feasible long term trajectory"
 
-        if trajs is None:
-            print(f"No feasible trajectory")
-            return None
+        # if trajs is None:
+        #     print(f"No feasible trajectory")
+        #     return None
         # adjust timestep
         if (not is_root):
             trajs[:, :, -1] += self.horizon - self.first_stage_horizion

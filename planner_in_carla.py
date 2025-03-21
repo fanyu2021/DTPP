@@ -22,7 +22,7 @@ import carla
 from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, STATIC_OBJECT_TYPES
 
-from agents.dtpp_common.common import get_ego_state_list_from_actor
+from agents.dtpp_common.features_adapter import get_ego_state_list_from_actor
 from custom_format import *
 
 
@@ -173,6 +173,7 @@ class CarlaTreePlanner:
         paths = []
         for edge in edges:
             paths.extend(self.depth_first_search(edge))
+            
 
         # extract path polyline
         candidate_paths = []
@@ -384,8 +385,11 @@ class CarlaTreePlanner:
         # edges = self.get_candidate_edges(starting_block)
         # candidate_paths = self.get_candidate_paths(edges)
         candidate_paths = dtpp_map.get_candidate_paths(vehicle)
+        candidate_paths = self.get_candidate_paths(candidate_paths)
         # logger.debug(f'candidate_paths: {candidate_paths}')
         paths = self.generate_paths(candidate_paths)
+        if len(paths) == 0:
+            logger.error('No candidate paths!!!')
         # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
         self.speed_limit = self.target_speed # TODO(fanyu): 道路限速
         

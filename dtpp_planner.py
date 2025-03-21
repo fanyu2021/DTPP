@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from carla2inputs import *
 from nuplan_adapter.nuplan_data_process import *
 
+from data_process import DataProcessor
+
   
 
 
@@ -86,7 +88,7 @@ class DTPPPlanner():
         start_time = time.perf_counter()
         # features = observation_adapter(history, traffic_light_data, self._map_api, self._route_roadblock_ids, self._device)
         features = create_feature_from_carla(carla_scenario_input=carla_scenario_input, device=self._device)
-
+        DataProcessor.plot_scenario(features)
         # Get starting block
         starting_block = None
         cur_point = (ego_state.x, ego_state.y)

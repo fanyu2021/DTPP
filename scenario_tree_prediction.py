@@ -28,8 +28,12 @@ class Encoder(nn.Module):
         self.crosswalk_encoder = VectorMapEncoder(self._crosswalk_feature, self._crosswalk_len)
 
         # 初始化注意力层
+        # TODO(fanyu): activation setting method various by different torch version
         attention_layer = nn.TransformerEncoderLayer(d_model=dim, nhead=heads, dim_feedforward=dim*4,
                                                      activation=F.gelu, dropout=dropout, batch_first=True)
+        
+        # attention_layer = nn.TransformerEncoderLayer(d_model=dim, nhead=heads, dim_feedforward=dim*4,
+        #                                              activation="gelu", dropout=dropout, batch_first=True)
         # 初始化融合编码器
         self.fusion_encoder = nn.TransformerEncoder(attention_layer, layers, enable_nested_tensor=False)
 

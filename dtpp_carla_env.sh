@@ -25,9 +25,13 @@ printf "\033[32m  --- CARLA_ROOT=\"%s\"\n \033[0m" "$CARLA_ROOT"
 
 # 打印conda路径信息
 printf "\033[32m --- CONDA_PATH=\"%s\"\n \033[0m" "$CONDA_PATH"
-echo "$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.15-py3.7-linux-x86_64.egg" >> "$CONDA_PATH"/envs/dtpp/lib/python3.9/site-packages/carla.pth
+echo "$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.15-py3.7-linux-x86_64.egg" >> "$CONDA_PATH"/envs/carla_dtpp/lib/python3.8/site-packages/carla.pth
 
 export PYTHONPATH=$PYTHONPATH:$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.15-py3.7-linux-x86_64.egg
 export PYTHONPATH=$PYTHONPATH:$CARLA_ROOT/PythonAPI/carla
+# export PYTHONPATH=$PYTHONPATH:/home/neousys/fanyu/E2E/DTPP/nuplan-devkit
+export PYTHONPATH=$PYTHONPATH:/home/neousys/fanyu/E2E/DTPP/nuplan-devkit
+
+
 
 # ./CarlaUE4.sh Carla/Maps/Town10HD_Opt -windowed -carla-server -benchmark -quality-level=Low -fps=30 -RenderOffScree

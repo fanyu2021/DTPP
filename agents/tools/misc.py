@@ -25,7 +25,11 @@ def draw_waypoints(world, transforms, z=0.5):
         begin = wpt_t.location + carla.Location(z=z)
         angle = math.radians(wpt_t.rotation.yaw)
         end = begin + carla.Location(x=math.cos(angle), y=math.sin(angle))
-        world.debug.draw_arrow(begin, end, arrow_size=0.3, life_time=1.0)
+        # world.debug.draw_arrow(begin, end, arrow_size=0.1, life_time=1.0)
+        # world.debug.draw_arrow(begin, end, arrow_size=0.05, life_time=1.0, color = carla.Color(r=150))
+        # world.debug.draw_line(begin, end, thickness=0.1, color=carla.Color(r=255), life_time=1.0)
+        # world.debug.draw_string(begin, 'o', draw_shadow=True, color=carla.Color(r=255), life_time=1.0)
+        world.debug.draw_point(begin, size=0.05, color=carla.Color(r=255), life_time=1.0)
 
 
 def get_speed(vehicle):

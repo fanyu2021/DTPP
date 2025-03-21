@@ -17,8 +17,10 @@ import carla
 from agents.navigation.basic_agent import BasicAgent
 from agents.navigation.local_planner import RoadOption
 from agents.navigation.behavior_types import Cautious, Aggressive, Normal
-from agents.dtpp_common.common import DtppInputs, transform_predictions_to_states
-from agents.dtpp_common.common_utils import DtppMap
+# from agents.dtpp_common.common import DtppInputs, transform_predictions_to_states
+from agents.dtpp_common.dtpp_planner_utils import transform_predictions_to_states
+from agents.dtpp_common.dtpp_data_inputs import DtppInputs
+from agents.dtpp_common.dtpp_map import DtppMap
 from agents.tools.misc import get_speed, positive, is_within_distance, compute_distance
 
 from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory

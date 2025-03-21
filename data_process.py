@@ -189,7 +189,8 @@ class DataProcessor(object):
         second_trajs = np.stack([leaf.total_traj[1:].numpy() for leaf in leaves]).astype(np.float32)
         
         return first_trajs, second_trajs
-
+    
+    @staticmethod
     def plot_scenario(self, data):
         # 判断 data 中是否包含 'lanes', 'crosswalks', 'route_lanes', 'ego_agent_past', 'neighbor_agents_past',
         # 'ego_agent_future', 'neighbor_agents_future', 'first_stage_ego_trajectory', 'second_stage_ego_trajectory'
