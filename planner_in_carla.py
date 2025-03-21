@@ -25,6 +25,8 @@ from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, S
 from agents.dtpp_common.features_adapter import get_ego_state_list_from_actor
 from custom_format import *
 
+from debug.dtpp_debug import DtppDebuger
+
 
 def path_to_linestring(path: List[EgoState]) -> LineString:
     """
@@ -167,56 +169,8 @@ class CarlaTreePlanner:
         self.n_candidates_expand = n_candidates_expand # second stage
         self.n_candidates_max = n_candidates_max # max number of candidates
         self.planner = SplinePlanner(self.first_stage_horizon, self.horizon)  
+        self.dtpp_debuger = DtppDebuger()
 
-    def get_candidate_paths(self, edges):
-        # get all paths
-        paths = []
-        for edge in edges:
-            paths.extend(self.depth_first_search(edge))
-            
-
-        # extract path polyline
-        candidate_paths = []
-
-        for i, path in enumerate(paths):
-            path_polyline = []
-            for edge in path:
-                path_polyline.extend(edge.baseline_path.discrete_path)
-
-            path_polyline = check_path(np.array(path_to_linestring(path_polyline).coords))
-            dist_to_ego = scipy.spatial.distance.cdist([self.ego_point], path_polyline)
-            path_polyline = path_polyline[dist_to_ego.argmin():]
-            if len(path_polyline) < 3:
-                continue
-
-            path_len = len(path_polyline) * 0.25
-            polyline_heading = calculate_path_heading(path_polyline)
-            path_polyline = np.stack([path_polyline[:, 0], path_polyline[:, 1], polyline_heading], axis=1)
-            candidate_paths.append((path_len, dist_to_ego.min(), path_polyline))
-
-        # trim paths by length
-        print(f'---candidate_paths---: {candidate_paths}')
-        max_path_len = max([v[0] for v in candidate_paths])
-        acceptable_path_len = MAX_LEN/2 if max_path_len > MAX_LEN/2 else max_path_len
-        paths = [v for v in candidate_paths if v[0] >= acceptable_path_len]
-
-        return paths
-
-    def get_candidate_edges(self, starting_block):
-        edges = []
-        edges_distance = []
-        self.ego_point = (self.ego_state.x, self.ego_state.y)
-
-        for edge in starting_block.interior_edges:
-            edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
-            if edge.polygon.distance(Point(self.ego_point)) < 4:
-                edges.append(edge)
-        
-        # if no edge is close to ego, use the closest edge
-        if len(edges) == 0:
-            edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
-
-        return edges
 
     def generate_paths(self, routes):
         ego_state = self.ego_state.rear_axle.x, self.ego_state.rear_axle.y, self.ego_state.rear_axle.heading
@@ -381,20 +335,24 @@ class CarlaTreePlanner:
         agent_states = env_inputs['neighbor_agents_past']
 
         # logger.debug(f'encoder_outputs: {encoder_outputs}')
-        # get candidate map lanes
-        # edges = self.get_candidate_edges(starting_block)
-        # candidate_paths = self.get_candidate_paths(edges)
-        candidate_paths = dtpp_map.get_candidate_paths(vehicle)
-        candidate_paths = self.get_candidate_paths(candidate_paths)
+
+        near_lanes = dtpp_map.get_candidate_lanes(vehicle)
         # logger.debug(f'candidate_paths: {candidate_paths}')
-        paths = self.generate_paths(candidate_paths)
-        if len(paths) == 0:
+        candidate_paths = self.generate_paths(near_lanes)
+        if len(candidate_paths) == 0:
             logger.error('No candidate paths!!!')
+
+        
+        
+        # dtpp_debuger.draw_dtpp_map(actor=vehicle, dtpp_map=dtpp_map)
+        self.dtpp_debuger.plot_generated_paths(candidate_paths)
+        self.dtpp_debuger.show()
+
         # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
         self.speed_limit = self.target_speed # TODO(fanyu): 道路限速
         
         # expand tree
-        tree.expand_children(paths, self.first_stage_horizon, self.speed_limit, self.planner)
+        tree.expand_children(candidate_paths, self.first_stage_horizon, self.speed_limit, self.planner)
         leaves = TrajTree.get_children(tree)
 
         # query the model
@@ -410,7 +368,7 @@ class CarlaTreePlanner:
 
         # expand leaves with higher scores
         for leaf in pruned_leaves:
-            leaf.expand_children(paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
+            leaf.expand_children(candidate_paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
 
         # get all leaves
         leaves = TrajTree.get_children(leaves)
@@ -445,8 +403,11 @@ class CarlaTreePlanner:
     
         # plot 
         if debug:
-            for i, traj in enumerate(trajs):
-                self.plot(iteration, env_inputs, traj, agent_trajectories[0, i])
+            from debug.dtpp_debug import DtppDebuger
+            DtppDebuger.plot_bokeh(iteration, env_inputs, trajs, agent_trajectories[0, i])
+
+            # for i, traj in enumerate(trajs):
+            #     self.plot(iteration, env_inputs, traj, agent_trajectories[0, i])
                 
         # logger.debug(f'best_traj: {best_traj}')
 

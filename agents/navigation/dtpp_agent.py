@@ -29,6 +29,8 @@ from nuplan.planning.simulation.trajectory.interpolated_trajectory import Interp
 from scenario_tree_prediction import *
 from planner_in_carla import CarlaTreePlanner
 
+from debug.dtpp_debug import DtppDebuger
+
 T:int = 8
 DT:float = 0.1
 
@@ -393,6 +395,10 @@ class DtppAgent(BasicAgent):
         
         # Get traffic light lanes
         traffic_light_lanes = self._dtpp_inputs.get_traffic_light_lane(self._dtpp_map)
+        
+        # dtpp_debuger = DtppDebuger()
+        # dtpp_debuger.draw_dtpp_map(actor=self._vehicle, dtpp_map=self._dtpp_map)
+        # dtpp_debuger.show()
         
         
 
