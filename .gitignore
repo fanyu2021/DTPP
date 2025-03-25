@@ -10,3 +10,4 @@ testing_log/
 training_log/
 *.log
 *.pyc
+*.mp4
