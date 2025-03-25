@@ -1,5 +1,7 @@
 import torch
 from prediction_modules import *
+from custom_format import *
+logger = create_colored_logger(__name__)
 
 
 class Encoder(nn.Module):
@@ -42,7 +44,7 @@ class Encoder(nn.Module):
         ego = inputs['ego_agent_past'] # ego shape: torch.Size([1, 21, 7])
         neighbors = inputs['neighbor_agents_past'] # neighbors shape: torch.Size([1, 20, 21, 11])
         # actors shape: torch.Size([1, 21, 21, 5)
-        print(f'---41---ego shape: {ego.shape}, neighbors shape: {neighbors.shape}')
+        logger.debug(f'---41---ego shape: {ego.shape}, neighbors shape: {neighbors.shape}')
         actors = torch.cat([ego[:, None, :, :5], neighbors[..., :5]], dim=1)
 
         # agent encoding

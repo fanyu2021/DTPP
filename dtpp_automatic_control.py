@@ -18,7 +18,7 @@ import collections
 import datetime
 import glob
 # import logger
-from custom_format import *
+
 import math
 import os
 import numpy.random as random
@@ -26,6 +26,9 @@ import re
 import sys
 import weakref
 import time
+
+from custom_format import *
+logger = create_colored_logger(name=__name__)
 
 try:
     import pygame
@@ -629,7 +632,7 @@ class CameraManager(object):
         attachment = carla.AttachmentType
         self._camera_transforms = [
             # (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=8.0)), attachment.SpringArmGhost), # defualt 视角
-            (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=24.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
+            (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=10.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
             (carla.Transform(carla.Location(x=+0.8*bound_x, y=+0.0*bound_y, z=1.3*bound_z)), attachment.Rigid),
             (carla.Transform(carla.Location(x=+1.9*bound_x, y=+1.0*bound_y, z=1.2*bound_z)), attachment.SpringArmGhost),
             (carla.Transform(carla.Location(x=-2.8*bound_x, y=+0.0*bound_y, z=4.6*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost),
@@ -828,8 +831,8 @@ def game_loop(args):
             control = agent.run_step_e2e() if args.agent == "Dtpp" else agent.run_step(True)
             if not control:
                 logger.error("--- Control is not ready!")
-                # control = agent.run_step(True)
-                continue
+                control = agent.run_step(True)
+                # continue
             control.manual_gear_shift = False
             world.player.apply_control(control)
             

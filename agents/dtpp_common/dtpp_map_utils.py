@@ -35,7 +35,7 @@ from nuplan.common.maps.maps_datatypes import (
 
 from agents.dtpp_common.dtpp_map import ( DtppMap,DtppLane, DtppCrossWalk, DtppRoutLane)
 from custom_format import *
-
+logger = create_colored_logger(name=__name__)
 
 
 

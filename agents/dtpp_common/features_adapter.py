@@ -14,7 +14,7 @@ import math
 from dataclasses import dataclass, field
 # import logging
 from custom_format import *
-
+logger = create_colored_logger(name=__name__)
 
 import carla
 
@@ -48,7 +48,7 @@ from nuplan.planning.training.preprocessing.feature_builders.vector_builder_util
 # from agents.dtpp_common.dtpp_data_inputs import DtppDataConfig
 from agents.dtpp_common.dtpp_map import DtppMap, DtppRoutLane
 from agents.dtpp_common.dtpp_map_utils import get_distance_between_dtpp_list2d_and_point
-from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor
+from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor,get_rear_axle_world_coordinates
 
 
 WINDOW_SIZE = 22
@@ -68,15 +68,16 @@ class DtppDataConfig:
     interpolation_method = 'linear'
 
 def get_state_list_from_actor(timestamp_us: int, actor: carla.Actor) -> List[float]:
-    x = actor.get_location().x
-    y = actor.get_location().y
+    location = get_rear_axle_world_coordinates(actor)
+    rear_x = location.x
+    rear_y = location.y
     heading = math.radians(actor.get_transform().rotation.yaw)
     vx = actor.get_velocity().x
     vy = actor.get_velocity().y
     ax = actor.get_acceleration().x
     ay = actor.get_acceleration().y
     tire_steering_angle = 0 # TODO: get from actor
-    return [timestamp_us, x, y, heading, vx, vy, ax, ay, tire_steering_angle]
+    return [timestamp_us, rear_x, rear_y, heading, vx, vy, ax, ay, tire_steering_angle]
 
 def get_ego_state_list_from_actor(timestamp_us: int, ego: carla.Actor) -> EgoState:
     # time_us = time.time() * 1e6 放在外面，避免每次调用都计算

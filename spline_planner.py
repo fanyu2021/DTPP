@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
+from custom_format import *
+logger = create_colored_logger(__name__)
 
 
 def cubic_spline_coefficients(x0, dx0, xf, dxf, tf):
@@ -11,6 +13,7 @@ def cubic_spline_coefficients(x0, dx0, xf, dxf, tf):
 
 def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     t = torch.arange(N+1).to(v0.device) * tf / N
+    logger.debug(f't = {t}')
     tp = t[..., None] ** torch.arange(4).to(v0.device)
     dtp = t[..., None] ** torch.tensor([0, 0, 1, 2]).to(v0.device) * torch.arange(4).to(v0.device)
     
@@ -20,12 +23,15 @@ def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     v = tp @ coefficients
     a = dtp @ coefficients
     s = torch.cumsum(v * tf / N, dim=0) # 沿着行方向累加，得到累积位移
+    # logger.warning(f's={s}')
     s = torch.cat((torch.zeros(1, 1).to(v0.device), s[:-1]), dim=0)
+    # logger.warning(f's={s}')
     s += offset
+    # logger.warning(f's={s}')
     i = (s / 0.1).long()
 
     if i[-1] > path.shape[0] - 1:
-        print(f'--- i[-1]: {i[-1]}, path.shape[0] - 1: {path.shape[0] - 1}')
+        logger.warning(f'--- i[-1]: {i[-1]}, path.shape[0] - 1: {path.shape[0] - 1}')
         return
 
     x = path[i, 0]
@@ -70,6 +76,7 @@ class SplinePlanner:
                 else:
                     xf_set.append(xf)
                     trajs.append(traj)
+                    logger.warning(f'short final:{traj[-1, :2]}')
 
         trajs = torch.stack(trajs)
         
@@ -116,12 +123,14 @@ class SplinePlanner:
         for path in paths:
             path = torch.from_numpy(path).to(x0.device).type(torch.float)
             dist = torch.norm(path[:, :2] - x0[:2], dim=1)
-            print(f'dist: {dist}')
-            if dist.min() > 0.1:
-                print("--- all the paths is not on current pos!")
+            # logger.info(f'dist: {dist}')
+            if dist.min() > 0.12:
+                logger.debug("--- current path is not on current pos!")
                 continue
             
             offset = torch.argmin(dist) * 0.1
+            # logger.warning(f'offset: {offset}')
+            # logger.warning(f'--- path min_dis: {path[torch.argmin(dist)]}')
 
             for v in self.v_grid:
                 traj = self.calc_trajectory(x0[3], x0[4], v, tf, path, (self.horizon-self.first_stage_horizion)*10, offset) # [x, y, yaw, v, a, r, t]
@@ -179,7 +188,7 @@ class SplinePlanner:
         else:
             v_min = max(v0 - tf, 0.0)
             v_max = min(v0 + tf, speed_limit)
-            print(f"v_min: {v_min}, v_max: {v_max}, v0: {v0}, tf: {tf}, speed_limit: {speed_limit}")
+            logger.debug(f"v_min: {v_min}, v_max: {v_max}, v0: {v0}, tf: {tf}, speed_limit: {speed_limit}")
             self.v_grid = torch.linspace(v_min, v_max, 5).to(x0.device)
             trajs = self.gen_long_term_trajs(x0, tf, paths, dyn_filter=False)
             assert trajs is not None, "No feasible long term trajectory"

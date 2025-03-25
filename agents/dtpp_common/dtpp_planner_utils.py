@@ -13,7 +13,7 @@ import numpy as np
 # import math
 # import logging
 from custom_format import *
-
+logger = create_colored_logger(name=__name__)
 
 import carla
 
@@ -140,6 +140,8 @@ def _get_velocity_and_acceleration(
 
     # Planned
     dt = current_ego_state.time_point.time_s - ego_history[-2].time_point.time_s
+    logger.debug(f"--- dt = {dt}")
+    dt = 0.1 if dt > 0.12 else dt
     timesteps_current_planned: npt.NDArray[np.float32] = np.array([current_ego_state.time_point.time_s] + timesteps)
     ego_poses_current_planned: npt.NDArray[np.float32] = np.stack(
         [current_ego_state.rear_axle.serialize()] + [pose.serialize() for pose in ego_poses]

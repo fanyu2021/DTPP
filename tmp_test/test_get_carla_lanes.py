@@ -2,6 +2,7 @@ import sys
 import os
 # import logging
 from custom_format import *
+logger = create_colored_logger(name=__name__)
 import glob
 import carla
 import matplotlib.pyplot as plt

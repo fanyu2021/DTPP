@@ -10,6 +10,7 @@ from bokeh.models import Arrow, OpenHead, Text, ColumnDataSource, Label
 import numpy as np
 from typing import List
 import random
+import torch
 
 from nuplan.common.actor_state.state_representation import Point2D
 
@@ -17,7 +18,7 @@ from nuplan.common.actor_state.state_representation import Point2D
 import carla
 
 from agents.dtpp_common.dtpp_map import DtppMap
-from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor
+from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor, get_rear_axle_world_coordinates
 from planner_utils import trajectory_smoothing
 
 colors = ["blue", "green", "red", "orange", "purple", "brown"]
@@ -49,6 +50,7 @@ class DtppDebuger(metaclass=SingletonMeta):
         self._p.grid.visible = True
         self._p.xaxis.axis_label = "X"
         self._p.yaxis.axis_label = "Y"
+        self._p.legend.location = "top"
 
     def _set_plt(self):
         plt.figure(figsize=(10, 10))
@@ -246,6 +248,7 @@ class DtppDebuger(metaclass=SingletonMeta):
         for idx, path in enumerate(trim_lanes):
             x = path[2][:, 0].tolist()
             y = path[2][:, 1].tolist()
+            color = colors[idx % len(colors)]
             # self._p.line(
             #     x,
             #     y,
@@ -253,10 +256,21 @@ class DtppDebuger(metaclass=SingletonMeta):
             #     color=colors[idx % len(colors)],
             #     legend_label=f"Path {idx+1}",
             # )
-            self._p.scatter(x, y, size=5, color=colors[idx % len(colors)], alpha=0.5)
+            self._p.scatter(x, y, size=5, color=color, alpha=0.5)
+            text_pos_range = 0.5*random.random()
+            self._p.add_layout(
+                Label(
+                    x=x[-1] + text_pos_range,
+                    y=y[-1] + text_pos_range,
+                    text=f"{idx}",
+                    text_font_size="14px",
+                    text_color=color,
+                    text_font_style="bold",
+                )
+            )
 
         # 添加图例位置
-        self._p.legend.location = "top_left"
+        
 
     def _draw_topology_bokeh(self, topology):
 
@@ -309,12 +323,43 @@ class DtppDebuger(metaclass=SingletonMeta):
                 )
             )
 
-    def plot_generated_paths(self, g_paths):
-        print(f"g_path.shape:{g_paths}")
+    def transform_to_ego_frame(self, path, actor):
+        transform = actor.get_transform()
+        x, y, heading = transform.location.x, transform.location.y, np.deg2rad(transform.rotation.yaw)
+        x = path[:, 0] - x
+        y = path[:, 1] - y
+
+        # x_e = x * np.cos(-heading) - y * np.sin(-heading)
+        # y_e = x * np.sin(-heading) + y * np.cos(-heading)
+        # 将上述计算转换为矩阵运算
+        rotation_matrix = np.array([[np.cos(-heading), -np.sin(-heading)],
+                                    [np.sin(-heading), np.cos(-heading)]])
+        path_transformed = np.dot(rotation_matrix, np.vstack([x,y]))
+        x_e, y_e = path_transformed[0, :], path_transformed[1, :]
+        # path = np.column_stack([x_e, y_e])
+        return np.column_stack([x_e, y_e])
+    
+    def transform_to_global_frame(self, path, actor):
+        rear_axis_location = get_rear_axle_world_coordinates(actor)
+        transform = actor.get_transform()
+
+        x, y, heading = rear_axis_location.x, rear_axis_location.y, np.deg2rad(transform.rotation.yaw)
+        rotation_matrix = np.array([[np.cos(heading), -np.sin(heading)],
+                                    [np.sin(heading), np.cos(heading)]])
+        path_transformed = np.dot(rotation_matrix, path[:,:2].T).T
+        x = path_transformed[:, 0] + x
+        y = path_transformed[:, 1] + y
+        return np.column_stack([x ,y])
+        
+
+
+    def plot_generated_paths(self, g_paths, actor):
+        # print(f"g_path.shape:{g_paths}")
         xs, ys = [], []
         for i, path in enumerate(g_paths):
-            x_list = [pt[0] for pt in path]
-            y_list = [pt[1] for pt in path]
+            global_path = self.transform_to_global_frame(path, actor)
+            x_list = [pt[0] for pt in global_path]
+            y_list = [pt[1] for pt in global_path]
             xs.append(x_list)
             ys.append(y_list)
 
@@ -331,13 +376,13 @@ class DtppDebuger(metaclass=SingletonMeta):
             )
 
             
-            line_type = 'dashed'
-            self._p.multi_line(
-                xs,
-                ys,
+            line_type = 'solid'
+            self._p.line(
+                x_list,
+                y_list,
                 line_color=color,
                 line_dash="dotdash" if line_type == "dashed" else "solid",
-                line_width=1,
+                line_width=4,
             )
 
         # color = 'red'
@@ -349,6 +394,72 @@ class DtppDebuger(metaclass=SingletonMeta):
         #     line_dash="dotdash" if line_type == "dashed" else "solid",
         #     line_width=1,
         # )
+
+    def transform_tree_to_global_frame(self, tree, actor):
+        rear_axis_location = get_rear_axle_world_coordinates(actor)
+        transform = actor.get_transform()
+        x, y, heading = rear_axis_location.x, rear_axis_location.y, np.deg2rad(transform.rotation.yaw)
+
+        rotation_matrix = np.array([[np.cos(heading), -np.sin(heading)],
+                                    [np.sin(heading), np.cos(heading)]])
+        
+        state = tree.state.cpu().detach().numpy().reshape(-1,1)
+        state_transformed = np.dot(rotation_matrix, state[:2,:])
+        state[0] = state_transformed[0,:] + x
+        state[1] = state_transformed[1,:] + y
+        tree.state = torch.from_numpy(state)
+
+        traj = tree.traj.cpu().detach().numpy() # n x 7
+        traj_transformed = np.dot(rotation_matrix, traj.T[:2,:]).T
+        traj[:,0] = traj_transformed[:,0] + x
+        traj[:,1] = traj_transformed[:,0] + y
+        tree.traj = torch.from_numpy(traj)        
+        return tree
+
+    def plot_tree_bokeh(self, tree, actor):
+        # p = figure(plot_width=800, plot_height=400, title='Tree Plot')
+        # tree = self.transform_tree_to_global_frame(tree=tree, actor=actor)
+        state = tree.state.cpu().detach().numpy()
+        self._p.circle(state[0], state[1], size=12, color='blue')
+
+        if tree.traj.shape[0] > 1:
+            if tree.parent is not None:
+                traj_l = torch.cat((tree.parent.traj[-1:], tree.traj), 0)
+                traj = traj_l.cpu().detach().numpy()
+            else:
+                traj = tree.traj.cpu().detach().numpy()
+
+            self._p.scatter(traj[:, 0], traj[:, 1], color='black')
+
+        if tree.children is None:
+            return
+
+        for child in tree.children:
+            # child_plot = child.plot_tree()
+            self.plot_tree_bokeh(child, actor=actor)
+            # self._p.renderers.extend(child_plot.renderers)
+
+    def plot_tree(self, tree, ax=None, msize=12):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(20, 10))
+        state = tree.state.cpu().detach().numpy()
+        
+        ax.plot(state[0], state[1], marker="o", color="b", markersize=msize)
+
+        if tree.traj.shape[0] > 1:
+            if tree.parent is not None:
+                traj_l = torch.cat((tree.parent.traj[-1:],self.traj),0)
+                traj = traj_l.cpu().detach().numpy()
+            else:
+                traj = tree.traj.cpu().detach().numpy()
+
+            ax.plot(traj[:, 0], traj[:, 1], color="k")
+
+        for child in tree.children:
+            # child.plot_tree(ax)
+            self.plot_tree(child, ax)
+
+        return ax
 
     
     @staticmethod
@@ -421,7 +532,6 @@ class DtppDebuger(metaclass=SingletonMeta):
 # from bokeh.models import ColumnDataSource, Rect, Circle, MultiLine
 # from bokeh.io import output_notebook
 # import numpy as np
-    @staticmethod
     def plot_bokeh(self, iteration, env_inputs, ego_futures, agents_future, vehicle_param):
         # 输出到 Notebook（可选）
         # output_notebook()
@@ -447,10 +557,10 @@ class DtppDebuger(metaclass=SingletonMeta):
             self.plot_single_traj_bokeh(env_inputs, traj, agents_future, vehicle_param, p)
 
         # 显示图形
-        bplt.show(p)
+        # bplt.show(p)
 
-    @staticmethod
-    def plot_single_traj_bokeh(env_inputs, ego_future, agents_future, vehicle_param, p):
+
+    def plot_single_traj_bokeh(self, env_inputs, ego_future, agents_future, vehicle_param, p):
         # ------------------------------
         # 绘制地图车道
         # ------------------------------

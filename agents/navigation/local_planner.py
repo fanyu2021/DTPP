@@ -11,7 +11,7 @@ import random
 import numpy as np
 from copy import copy, deepcopy
 from custom_format import *
-
+logger = create_colored_logger(name=__name__)
 import carla
 from agents.navigation.controller import VehiclePIDController
 from agents.tools.misc import draw_waypoints, get_speed
@@ -277,7 +277,7 @@ class LocalPlanner(object):
 
         return control
     
-    def set_e2e_tracjectory(self, e2e_trajectory, debug=False):
+    def set_e2e_tracjectory(self, e2e_trajectory, debug=True):
         transforms = []
         if len(self._waypoints_queue) == 0:
             control = carla.VehicleControl()
@@ -294,7 +294,7 @@ class LocalPlanner(object):
                 transform = carla.Transform()
                 transform.location = carla.Location(x=pt.rear_axle.x,y=pt.rear_axle.y, z=0)
                 transform.rotation = carla.Rotation(yaw = np.rad2deg(pt.rear_axle.heading))
-                logger.debug(f"pt:{pt.rear_axle.x},{pt.rear_axle.y},{np.rad2deg(pt.rear_axle.heading)}")
+                # logger.debug(f"pt:{pt.rear_axle.x},{pt.rear_axle.y},{np.rad2deg(pt.rear_axle.heading)}")
                 transforms.append(transform)
                 # self._waypoints_queue.append(wp)
             # self.target_waypoint, self.target_road_option = self._waypoints_queue[0]

@@ -416,7 +416,7 @@ class DtppAgent(BasicAgent):
         # Convert relative poses to absolute states and wrap in a trajectory object
         states = transform_predictions_to_states(plan, self._dtpp_inputs._ego_state_buffer, self._future_horizon, 0.1)
         trajectory = InterpolatedTrajectory(states)
-        print(f'Step {self._iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
+        logger.info(f'Step {self._iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
 
         # return trajectory
 

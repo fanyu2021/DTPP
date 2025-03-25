@@ -29,6 +29,8 @@ def create_colored_logger(name=__name__):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
+    # file_name = name.split('.')[-1]+'.py'
+
     # # 移除所有现有handler防止重复
     # if logger.handlers:
     #     logger.handlers = []
@@ -36,9 +38,9 @@ def create_colored_logger(name=__name__):
     # 控制台handler
     console_handler = logging.StreamHandler()
     # console_handler.setFormatter(ColoredFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-    console_handler.setFormatter(ColoredFormatter("%(asctime)s %(name)s-[%(levelname)s] %(message)s"))
+    console_handler.setFormatter(ColoredFormatter("%(asctime)s %(filename)s:%(lineno)d[%(levelname)s] %(message)s"))
     logger.addHandler(console_handler)
     # logger.propagate = False  # 阻止传播到根logger
     return logger
 
-logger = create_colored_logger()
+# logger = create_colored_logger(name=__name__)

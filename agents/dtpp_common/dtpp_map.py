@@ -4,8 +4,10 @@ import carla
 from typing import Any, List, Dict, Callable, Union
 from collections import defaultdict
 from scipy.spatial.distance import cdist
+import numpy as np
 import shapely.geometry as geom
-
+from dataclasses import dataclass
+from copy import deepcopy
 
 from nuplan.planning.training.preprocessing.feature_builders.vector_builder_utils import *
 from nuplan.common.actor_state.state_representation import Point2D
@@ -20,6 +22,7 @@ from agents.dtpp_common.dtpp_planner_utils import get_rear_axle_world_coordinate
 # from agents.dtpp_common.dtpp_data_inputs import get_distance_between_dtpp_lane_and_point
 
 from custom_format import *
+logger = create_colored_logger(name=__name__)
 
 @dataclass
 class DtppLane(object):
@@ -67,7 +70,21 @@ class DtppMap(object):
         ids = [wp[0].lane_id for wp in routing]
         return list(set(ids))
 
+    # def _transform_topology_to_right_coord(self, topology):
 
+    #     res : dict = deepcopy(topology)
+    #     for lane in res:
+    #         lane["entry"].transform.location.y *= -1
+    #         lane["exit"].transform.location.y *= -1
+    #         for wp in lane["path"]:
+    #             wp.transform.location.y *= -1
+    #     return res
+    
+    # def _tranform_routing_to_right_coord(self, routing):
+    #     res: dict = deepcopy(routing)
+    #     for wp in res:
+    #         wp[0].transform.location.y *= -1
+    #     return res
 
     
 
@@ -284,6 +301,21 @@ class DtppMap(object):
                     break
             if len(path) < 3:
                 continue  # 跳过过短路径
+
+            def is_duplictated(paths, path):
+                if not paths:
+                    return False
+                for e in paths:
+                    e_end = e[-1,:2]
+                    # print(f"path:{path}")
+                    path_end = np.array(path[-1])
+                    if np.linalg.norm(e_end-path_end) < 1.5*interval:
+                        logger.warning(f'--- this lane is duplicated!')
+                        return True
+                    
+            if is_duplictated(candidate_paths, path):
+                continue
+
 
             # 转换为 NumPy 数组并计算航向
             path = np.array(path)

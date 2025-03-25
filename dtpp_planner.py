@@ -115,8 +115,8 @@ class DTPPPlanner():
 
         # Tree policy planner
         # try:
-        for k, v in features.items():
-            print(f'---116---features {k}: {v}')    
+        # for k, v in features.items():
+            # print(f'---116---features {k}: {v}')    
         plan = self._trajectory_planner.plan(iteration, ego_state, features, carla_scenario_input, self._route_roadblocks, 
                                              self._candidate_lane_edge_ids, traffic_light_lanes, observation)
         # except Exception as e:
@@ -128,7 +128,7 @@ class DTPPPlanner():
         states = transform_predictions_to_states(plan, carla_scenario_input.ego_states, self._future_horizon, DT)
         # trajectory = InterpolatedTrajectory(states)
         trajectory = states
-        print(f'Step {iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
+        logger.info(f'Step {iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
         for state in states:
             print(state)
 

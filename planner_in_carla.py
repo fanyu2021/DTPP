@@ -23,7 +23,9 @@ from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType, STATIC_OBJECT_TYPES
 
 from agents.dtpp_common.features_adapter import get_ego_state_list_from_actor
+from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor
 from custom_format import *
+logger = create_colored_logger(name=__name__)
 
 from debug.dtpp_debug import DtppDebuger
 
@@ -163,7 +165,7 @@ class CarlaTreePlanner:
         self.device = device
         self.max_path_len = 120 # [m]
         self.target_depth = MAX_LEN # [m]
-        self.target_speed = 13 # [m/s]
+        self.target_speed = 15 # [m/s]
         self.horizon = 8 # [s]
         self.first_stage_horizon = 3 # [s]
         self.n_candidates_expand = n_candidates_expand # second stage
@@ -198,7 +200,7 @@ class CarlaTreePlanner:
                 path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
                 new_paths.append(path_polyline)  
                 path_distance.append(dist)   
-
+        logger.debug(f'--- new_paths size:{len(new_paths)}, len(dist):{len(path_distance)}')
         # evaluate paths
         candiate_paths = {}
         for path, dist in zip(new_paths, path_distance):
@@ -207,11 +209,13 @@ class CarlaTreePlanner:
 
         # sort paths by cost
         candidate_paths = []
-        for cost in sorted(candiate_paths.keys())[:3]:
+        # nums = len(candiate_paths)
+        nums = 3
+        for cost in sorted(candiate_paths.keys())[:nums]:
             path = candiate_paths[cost]
             path = self.post_process(path)
             candidate_paths.append(path)
-
+        logger.debug(f'--- candidate_paths size:{len(candidate_paths)}')
         return candidate_paths
     
     def calculate_cost(self, path, dist):
@@ -302,8 +306,8 @@ class CarlaTreePlanner:
         x_e = x * np.cos(-self.ego_state.rear_axle.heading) - y * np.sin(-self.ego_state.rear_axle.heading)
         y_e = x * np.sin(-self.ego_state.rear_axle.heading) + y * np.cos(-self.ego_state.rear_axle.heading)
         path = np.column_stack([x_e, y_e])
-
         return path
+    
 
     def plan(self, iteration, dtpp_map, vehicle: carla.Actor, env_inputs, candidate_lanes, traffic_light, observation, debug=False):
         # get environment information
@@ -344,9 +348,9 @@ class CarlaTreePlanner:
 
         
         
-        # dtpp_debuger.draw_dtpp_map(actor=vehicle, dtpp_map=dtpp_map)
-        self.dtpp_debuger.plot_generated_paths(candidate_paths)
-        self.dtpp_debuger.show()
+        # self.dtpp_debuger.draw_dtpp_map(actor=vehicle, dtpp_map=dtpp_map)
+        # self.dtpp_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
+        # self.dtpp_debuger.show()
 
         # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
         self.speed_limit = self.target_speed # TODO(fanyu): 道路限速
@@ -354,6 +358,8 @@ class CarlaTreePlanner:
         # expand tree
         tree.expand_children(candidate_paths, self.first_stage_horizon, self.speed_limit, self.planner)
         leaves = TrajTree.get_children(tree)
+        # self.dtpp_debuger.plot_tree_bokeh(tree, actor=vehicle)
+        
 
         # query the model
         parent_scores = {}
@@ -368,6 +374,7 @@ class CarlaTreePlanner:
 
         # expand leaves with higher scores
         for leaf in pruned_leaves:
+            logger.warning(f'leaf.state:{leaf.state[:2]}')
             leaf.expand_children(candidate_paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
 
         # get all leaves
@@ -402,10 +409,12 @@ class CarlaTreePlanner:
         best_traj = best_parent.children[best_child_index].total_traj[1:, :3]
     
         # plot 
-        if debug:
-            from debug.dtpp_debug import DtppDebuger
-            DtppDebuger.plot_bokeh(iteration, env_inputs, trajs, agent_trajectories[0, i])
-
+        # if debug:
+        # if True:
+            # self.dtpp_debuger.plot_bokeh(iteration=iteration, env_inputs=env_inputs,
+            #                              ego_futures=trajs, agents_future=agent_trajectories[0, i], 
+            #                              vehicle_param=get_vehicle_params_from_actor(vehicle))
+            # self.dtpp_debuger.show()
             # for i, traj in enumerate(trajs):
             #     self.plot(iteration, env_inputs, traj, agent_trajectories[0, i])
                 
