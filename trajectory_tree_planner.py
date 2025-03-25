@@ -169,31 +169,43 @@ class TreePlanner:
         self.planner = SplinePlanner(self.first_stage_horizon, self.horizon)  
 
     def get_candidate_paths(self, edges):
-        # get all paths
+        """ 生成候选路径集合
+        
+        参数:
+        edges: 候选车道边缘列表（来自get_candidate_edges）
+        
+        返回:
+        经过筛选的候选路径列表，每个元素为元组 (路径长度, 距自车最短距离, 路径点阵)
+        """
+        # 步骤1：通过深度优先搜索生成原始路径
         paths = []
         for edge in edges:
-            paths.extend(self.depth_first_search(edge))
+            paths.extend(self.depth_first_search(edge))  # 递归探索所有可能路径分支
 
-        # extract path polyline
+        # 步骤2：路径后处理与特征提取
         candidate_paths = []
-
         for i, path in enumerate(paths):
+            # 合并车道的离散路径点
             path_polyline = []
             for edge in path:
                 path_polyline.extend(edge.baseline_path.discrete_path)
-
-            path_polyline = check_path(np.array(path_to_linestring(path_polyline).coords))
-            dist_to_ego = scipy.spatial.distance.cdist([self.ego_point], path_polyline)
+            
+            # 路径有效性检查与坐标转换
+            path_polyline = check_path(np.array(path_to_linestring(path_polyline).coords))  # 确保路径连续
+            dist_to_ego = scipy.spatial.distance.cdist([self.ego_point], path_polyline)     # 计算自车到路径的最短距离
+            
+            # 路径修剪：从最近点开始截取后续路径
             path_polyline = path_polyline[dist_to_ego.argmin():]
-            if len(path_polyline) < 3:
+            if len(path_polyline) < 3:  # 过滤过短路径
                 continue
 
+            # 计算路径特征：长度（假设每点间隔0.25米）、航向角
             path_len = len(path_polyline) * 0.25
-            polyline_heading = calculate_path_heading(path_polyline)
+            polyline_heading = calculate_path_heading(path_polyline)  # 计算每个路径点的航向
             path_polyline = np.stack([path_polyline[:, 0], path_polyline[:, 1], polyline_heading], axis=1)
             candidate_paths.append((path_len, dist_to_ego.min(), path_polyline))
 
-        # trim paths by length
+        # 步骤3：路径长度筛选（保留长度超过阈值路径）
         max_path_len = max([v[0] for v in candidate_paths])
         acceptable_path_len = MAX_LEN/2 if max_path_len > MAX_LEN/2 else max_path_len
         paths = [v for v in candidate_paths if v[0] >= acceptable_path_len]
@@ -201,63 +213,89 @@ class TreePlanner:
         return paths
 
     def get_candidate_edges(self, starting_block):
-        edges = []
-        edges_distance = []
+        """ 获取自车所在道路块内的候选车道边缘
+        
+        参数:
+        starting_block: 自车当前所在道路块对象
+        
+        返回:
+        候选车道边缘列表，包含距离自车较近的车道边缘对象
+        """
+        edges = []           # 候选边缘容器
+        edges_distance = []  # 边缘距离记录
+        # 获取自车后轴中心坐标 (x,y)
         self.ego_point = (self.ego_state.rear_axle.x, self.ego_state.rear_axle.y)
 
+        # 遍历道路块内部所有车道边缘
         for edge in starting_block.interior_edges:
-            edges_distance.append(edge.polygon.distance(Point(self.ego_point)))
-            if edge.polygon.distance(Point(self.ego_point)) < 4:
+            # 计算边缘多边形到自车的欧式距离
+            dist = edge.polygon.distance(Point(self.ego_point))
+            edges_distance.append(dist)
+            
+            # 筛选距离自车4米范围内的车道边缘
+            if dist < 4:
                 edges.append(edge)
         
-        # if no edge is close to ego, use the closest edge
+        # 回退逻辑：若无符合条件边缘，选择最近边缘
         if len(edges) == 0:
-            edges.append(starting_block.interior_edges[np.argmin(edges_distance)])
+            closest_idx = np.argmin(edges_distance)
+            edges.append(starting_block.interior_edges[closest_idx])
 
         return edges
 
     def generate_paths(self, routes):
+        # 获取自车状态（后轴中心坐标和航向角）
         ego_state = self.ego_state.rear_axle.x, self.ego_state.rear_axle.y, self.ego_state.rear_axle.heading
         
-        # generate paths
+        # 初始化路径容器
         new_paths = []
-        path_distance = []
+        path_distance = []  # 存储路径到自车的初始距离
+
+        # 遍历所有候选路径（第一阶段）
         for (path_len, dist, path_polyline) in routes:
+            # 根据路径长度动态调整采样点密度（平衡计算效率与路径连续性）
             if len(path_polyline) > 81:
-                sampled_index = np.array([5, 10, 15, 20]) * 4
+                sampled_index = np.array([5, 10, 15, 20]) * 4  # 长路径：多阶段采样
             elif len(path_polyline) > 61:
-                sampled_index = np.array([5, 10, 15]) * 4
+                sampled_index = np.array([5, 10, 15]) * 4     # 中长路径：三阶段采样
             elif len(path_polyline) > 41:
-                sampled_index = np.array([5, 10]) * 4
+                sampled_index = np.array([5, 10]) * 4          # 中等路径：双阶段采样
             elif len(path_polyline) > 21:
-                sampled_index = [20]
+                sampled_index = [20]                            # 短路径：末端采样
             else:
-                sampled_index = [1]
+                sampled_index = [1]                             # 极短路径：起点采样
      
+            # 基于采样点生成目标状态
             target_states = path_polyline[sampled_index].tolist()
+            
+            # 两阶段路径生成（贝塞尔曲线 + 原路径延伸）
             for j, state in enumerate(target_states):
+                # 第一阶段：生成连接当前状态和目标点的贝塞尔曲线（3秒轨迹）
                 first_stage_path = calc_4points_bezier_path(ego_state[0], ego_state[1], ego_state[2], 
                                                             state[0], state[1], state[2], 3, sampled_index[j])[0]
+                # 第二阶段：接续原始路径后续点
                 second_stage_path = path_polyline[sampled_index[j]+1:, :2]
+                # 合并两阶段路径
                 path_polyline = np.concatenate([first_stage_path, second_stage_path], axis=0)
                 new_paths.append(path_polyline)  
-                path_distance.append(dist)   
+                path_distance.append(dist)   # 保留原始距离参数用于后续评估
 
-        # evaluate paths
+        # 路径评估与筛选
         candiate_paths = {}
+        # 计算每条路径的综合代价值
         for path, dist in zip(new_paths, path_distance):
             cost = self.calculate_cost(path, dist)
             candiate_paths[cost] = path
 
-        # sort paths by cost
+        # 按代价值排序并保留最优三条路径
         candidate_paths = []
         for cost in sorted(candiate_paths.keys())[:3]:
             path = candiate_paths[cost]
-            path = self.post_process(path)
+            path = self.post_process(path)  # 进行路径后处理（坐标系转换+样条插值）
             candidate_paths.append(path)
 
         return candidate_paths
-    
+
     def calculate_cost(self, path, dist):
         # path curvature
         curvature = self.calculate_path_curvature(path[0:100])
@@ -331,30 +369,107 @@ class TreePlanner:
         return 0
 
     def predict(self, encoder_outputs, traj_inputs, agent_states, timesteps):
+        """ 轨迹预测方法：使用解码器生成周边交通参与者轨迹预测
+        
+        参数:
+        encoder_outputs -- 编码器输出的环境特征
+        traj_inputs     -- 候选轨迹集合（多个候选轨迹的时序状态）
+        agent_states    -- 周边交通参与者历史状态
+        timesteps       -- 预测时间步长
+
+        返回:
+        agent_trajs -- 预测的交通参与者轨迹 [batch, n_agents, timesteps, state_dim]
+        scores      -- 候选轨迹的匹配分数（用于轨迹选择）
+        """
+        # 初始化候选轨迹张量容器（最大候选数 × 时间步数 × 状态维度）
         ego_trajs = torch.zeros((self.n_candidates_max, self.horizon*10, 6)).to(self.device)
+        
+        # 填充候选轨迹数据（处理变长输入）
         for i, traj in enumerate(traj_inputs):
+            # 截取前6个状态参数（x,y,heading,speed,accel,curvature）
             ego_trajs[i, :len(traj)] = traj[..., :6].float()
 
-        ego_trajs = ego_trajs.unsqueeze(0)
-        agent_trajs, scores, _, _ = self.decoder(encoder_outputs, ego_trajs, agent_states, timesteps)
+        # 增加批次维度（适配解码器输入格式）
+        ego_trajs = ego_trajs.unsqueeze(0)  # shape: [1, n_candidates, timesteps, 6]
+        
+        # 调用解码器进行轨迹预测
+        agent_trajs, scores, _, _ = self.decoder(
+            encoder_outputs,    # 环境编码特征
+            ego_trajs,          # 候选自车轨迹
+            agent_states,       # 其他交通参与者历史状态
+            timesteps           # 预测时间步长
+        )
 
         return agent_trajs, scores
-    
+
     def transform_to_ego_frame(self, path):
+        # 将全局坐标系下的路径点转换到自车坐标系
+        # 平移变换：以自车后轴中心为原点
         x = path[:, 0] - self.ego_state.rear_axle.x
         y = path[:, 1] - self.ego_state.rear_axle.y
+        
+        # 旋转变换：消除自车航向角影响
+        # 使用二维旋转矩阵：[cosθ  -sinθ]
+        #                [sinθ   cosθ]
         x_e = x * np.cos(-self.ego_state.rear_axle.heading) - y * np.sin(-self.ego_state.rear_axle.heading)
         y_e = x * np.sin(-self.ego_state.rear_axle.heading) + y * np.cos(-self.ego_state.rear_axle.heading)
+        # # 将上述变换合并为一个矩阵运算
+        # rotation_matrix = np.array([[np.cos(-self.ego_state.rear_axle.heading), -np.sin(-self.ego_state.rear_axle.heading)],
+        #                             [np.sin(-self.ego_state.rear_axle.heading), np.cos(-self.ego_state.rear_axle.heading)]])
+        # path_transformed = np.dot(rotation_matrix, np.vstack([x, y]))
+
+
+        # x_e = path_transformed[0, :]
+        # y_e = path_transformed[1, :]
+        
+    
+        # 合并坐标并返回新路径
         path = np.column_stack([x_e, y_e])
+
+        return path
+    
+    def transform_to_global_frame(self, path):
+        # 将自车坐标系下的路径点转换到全局坐标系
+        # 旋转变换：消除自车航向角影响
+        # 使用二维旋转矩阵：[cosθ  -sinθ]
+        #                [sinθ   cosθ]
+        # 采用矩阵运算实现
+        rotation_matrix = np.array([[np.cos(self.ego_state.rear_axle.heading), -np.sin(self.ego_state.rear_axle.heading)], 
+                                    [np.sin(self.ego_state.rear_axle.heading), np.cos(self.ego_state.rear_axle.heading)]])
+        path_transformed = np.dot(rotation_matrix, path.T).T
+
+        # 平移变换：将路径点转换到全局坐标系
+        x = path_transformed[:, 0] + self.ego_state.rear_axle.x
+        y = path_transformed[:, 1] + self.ego_state.rear_axle.y
+        # 合并坐标并返回新路径
+        path = np.column_stack([x, y])
 
         return path
 
     def plan(self, iteration, ego_state, env_inputs, starting_block, route_roadblocks, candidate_lane_edge_ids, traffic_light, observation, debug=False):
-        # get environment information
+        """ 两阶段轨迹规划核心方法
+        
+        参数:
+        iteration: 规划迭代次数（用于调试）
+        ego_state: 自车状态（位置/速度/加速度等）
+        env_inputs: 环境输入（包含地图/障碍物/其他交通参与者等信息）
+        starting_block: 起始道路块对象
+        route_roadblocks: 导航路径道路块序列
+        candidate_lane_edge_ids: 候选车道边缘ID列表
+        traffic_light: 当前交通灯状态
+        observation: 环境感知数据
+        debug: 调试模式开关
+
+        返回:
+        最佳候选轨迹张量 [时间步数, 3] (x,y,航向角)
+        """
+        # ------------------ 环境信息初始化 ------------------
         self.ego_state = ego_state
         self.candidate_lane_edge_ids = candidate_lane_edge_ids
         self.route_roadblocks = route_roadblocks
         self.traffic_light = traffic_light
+
+        # 障碍物处理（筛选静止车辆和其他障碍物）
         object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
                         TrackedObjectType.CZONE_SIGN, TrackedObjectType.TRAFFIC_CONE,
                         TrackedObjectType.GENERIC_OBJECT]
@@ -362,57 +477,61 @@ class TreePlanner:
         self.obstacles = []
         for obj in objects:
             if obj.tracked_object_type == TrackedObjectType.VEHICLE:
+                # 仅保留速度低于0.1m/s的静止车辆
                 if obj.velocity.magnitude() < 0.1:
                     self.obstacles.append(obj.box)
             else:
                 self.obstacles.append(obj.box)
 
-        # initial tree (root node)
-        # x, y, heading, velocity, acceleration, curvature, time
-        state = torch.tensor([[0, 0, 0, # x, y, heading 
+        # ------------------ 轨迹树初始化 ------------------
+        # 构建根节点状态 [x, y, 航向角, 速度, 加速度, 曲率, 时间]
+        state = torch.tensor([[0, 0, 0, 
                                ego_state.dynamic_car_state.rear_axle_velocity_2d.x,
-                               ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 0, 0]], dtype=torch.float32)
-        tree = TrajTree(state, None, 0)
+                               ego_state.dynamic_car_state.rear_axle_acceleration_2d.x, 
+                               0, 0]], dtype=torch.float32)
+        tree = TrajTree(state, None, 0)  # 创建轨迹树根节点
 
-        # environment encoding
-        encoder_outputs = self.encoder(env_inputs)
-        agent_states = env_inputs['neighbor_agents_past']
+        # ------------------ 环境特征编码 ------------------
+        encoder_outputs = self.encoder(env_inputs)  # 编码地图/障碍物等信息
+        agent_states = env_inputs['neighbor_agents_past']  # 其他交通参与者历史轨迹
 
-        # get candidate map lanes
-        edges = self.get_candidate_edges(starting_block)
-        candidate_paths = self.get_candidate_paths(edges)
-        paths = self.generate_paths(candidate_paths)
-        self.speed_limit = edges[0].speed_limit_mps or self.target_speed
-        
-        # expand tree
+        # ------------------ 路径生成 ------------------
+        edges = self.get_candidate_edges(starting_block)  # 获取候选车道边缘
+        candidate_paths = self.get_candidate_paths(edges) # 生成候选路径集合
+        paths = self.generate_paths(candidate_paths)      # 路径后处理与筛选
+        self.speed_limit = edges[0].speed_limit_mps or self.target_speed  # 获取道路限速
+
+        # ------------------ 第一阶段轨迹扩展（3秒）------------------
         tree.expand_children(paths, self.first_stage_horizon, self.speed_limit, self.planner)
-        leaves = TrajTree.get_children(tree)
+        leaves = TrajTree.get_children(tree)  # 获取第一阶段叶子节点
 
-        # query the model
-        parent_scores = {}
+        # ------------------ 模型预测与轨迹筛选 ------------------
+        # 第一阶段轨迹评分
         trajs = [leaf.total_traj[1:] for leaf in leaves]
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.first_stage_horizon*10)
-        indices = torch.topk(scores, self.n_candidates_expand)[1][0]
+        indices = torch.topk(scores, self.n_candidates_expand)[1][0]  # 选择Top-K高分轨迹
+        
+        # 保留有效高分叶子节点
         pruned_leaves = []
         for i in indices:
             if i.item() < len(leaves):
                 pruned_leaves.append(leaves[i])
                 parent_scores[leaves[i]] = scores[0, i].item()
 
-        # expand leaves with higher scores
+        # ------------------ 第二阶段轨迹扩展（5秒）------------------
         for leaf in pruned_leaves:
             leaf.expand_children(paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
-
-        # get all leaves
-        leaves = TrajTree.get_children(leaves)
-        if len(leaves) > self.n_candidates_max:
+        
+        # ------------------ 最终轨迹选择 ------------------
+        leaves = TrajTree.get_children(leaves)  # 获取所有叶子节点
+        if len(leaves) > self.n_candidates_max:  # 随机采样控制计算量
            leaves = random.sample(leaves, self.n_candidates_max)
 
-        # query the model      
+        # 最终轨迹评分
         trajs = [leaf.total_traj[1:] for leaf in leaves]
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.horizon*10)
         
-        # calculate scores
+        # 综合两阶段评分选择最佳轨迹
         children_scores = {}
         for i, leaf in enumerate(leaves):
             if leaf.parent in children_scores:
@@ -420,85 +539,22 @@ class TreePlanner:
             else:
                 children_scores[leaf.parent] = [scores[0, i].item()]
 
-        # get the best parent
+        # 寻找综合评分最高的轨迹分支
         best_parent = None
         best_child_index = None
         best_score = -np.inf
         for parent in parent_scores.keys():
-            score = parent_scores[parent] + np.max(children_scores[parent])
+            score = parent_scores[parent] + np.max(children_scores[parent])  # 两阶段评分加权
             if score > best_score:
                 best_parent = parent
                 best_score = score
                 best_child_index = np.argmax(children_scores[parent])
 
-        # get the best trajectory
-        best_traj = best_parent.children[best_child_index].total_traj[1:, :3]
-    
-        # plot 
+        best_traj = best_parent.children[best_child_index].total_traj[1:, :3]  # 提取最佳轨迹坐标
+
+        # 调试模式可视化
         if debug:
             for i, traj in enumerate(trajs):
                 self.plot(iteration, env_inputs, traj, agent_trajectories[0, i])
 
         return best_traj
-    
-    def plot(self, iteration, env_inputs, ego_future, agents_future):
-        fig = plt.gcf()
-        dpi = 100
-        size_inches = 800 / dpi
-        fig.set_size_inches([size_inches, size_inches])
-        fig.set_dpi(dpi)
-        fig.set_tight_layout(True)
-
-        # plot map
-        map_lanes = env_inputs['map_lanes'][0]
-        for i in range(map_lanes.shape[0]):
-            lane = map_lanes[i].cpu().numpy()
-            if lane[0, 0] != 0:
-                plt.plot(lane[:, 0], lane[:, 1], color="gray", linewidth=20, zorder=1)
-                plt.plot(lane[:, 0], lane[:, 1], "k--", linewidth=1, zorder=2)
-
-        map_crosswalks = env_inputs['map_crosswalks'][0]
-        for crosswalk in map_crosswalks:
-            pts = crosswalk.cpu().numpy()
-            plt.plot(pts[:, 0], pts[:, 1], 'b:', linewidth=2)
-
-        # plot ego
-        front_length = get_pacifica_parameters().front_length
-        rear_length = get_pacifica_parameters().rear_length
-        width = get_pacifica_parameters().width
-        rect = plt.Rectangle((0 - rear_length, 0 - width/2), front_length + rear_length, width, 
-                             linewidth=2, color='r', alpha=0.9, zorder=3)
-        plt.gca().add_patch(rect)
-
-        # plot agents
-        agents = env_inputs['neighbor_agents_past'][0]
-        for agent in agents:
-            agent = agent[-1].cpu().numpy()
-            if agent[0] != 0:
-                rect = plt.Rectangle((agent[0] - agent[6]/2, agent[1] - agent[7]/2), agent[6], agent[7],
-                                      linewidth=2, color='m', alpha=0.9, zorder=3,
-                                      transform=mpl.transforms.Affine2D().rotate_around(*(agent[0], agent[1]), agent[2]) + plt.gca().transData)
-                plt.gca().add_patch(rect)
-                                    
-
-        # plot ego and agents future trajectories
-        ego = ego_future.cpu().numpy()
-        agents = agents_future.cpu().numpy()
-        plt.plot(ego[:, 0], ego[:, 1], color="r", linewidth=3)
-        plt.gca().add_patch(plt.Circle((ego[29, 0], ego[29, 1]), 0.5, color="r", zorder=4))
-        plt.gca().add_patch(plt.Circle((ego[79, 0], ego[79, 1]), 0.5, color="r", zorder=4))
-
-        for agent in agents:
-            if np.abs(agent[0, 0]) > 1:
-                agent = trajectory_smoothing(agent)
-                plt.plot(agent[:, 0], agent[:, 1], color="m", linewidth=3)
-                plt.gca().add_patch(plt.Circle((agent[29, 0], agent[29, 1]), 0.5, color="m", zorder=4))
-                plt.gca().add_patch(plt.Circle((agent[79, 0], agent[79, 1]), 0.5, color="m", zorder=4))
-
-        # plot
-        plt.gca().margins(0)  
-        plt.gca().set_aspect('equal')
-        plt.gca().axes.get_yaxis().set_visible(False)
-        plt.gca().axes.get_xaxis().set_visible(False)
-        plt.gca().axis([-50, 50, -50, 50])
-        plt.show()

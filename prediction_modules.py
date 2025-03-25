@@ -394,23 +394,58 @@ class ScoreDecoder(nn.Module):
         return features
 
     def forward(self, ego_traj, ego_encoding, agents_traj, agents_states, timesteps):
+        """ 轨迹评分前向计算流程（多分支代价评估）
+        
+        处理流程：
+        1. 提取硬编码特征（速度/加速度等动力学参数）
+        2. 生成动态权重系数（场景自适应特征权重）
+        3. 遍历候选分支计算综合代价
+        4. 整合评分并过滤无效轨迹
+        """
+        # 1. 提取自车轨迹的硬编码特征（batch_size × 分支数 × 特征数）
         ego_traj_features = self.get_hardcoded_features(ego_traj, timesteps)
+        
+        # 固定代价权重模式：使用全1向量代替编码特征（禁用场景自适应）
         if not self._variable_cost:
             ego_encoding = torch.ones_like(ego_encoding)
+        
+        # 2. 解码特征权重（batch_size × 8维权重）
         weights = self.weights_decoder(ego_encoding)
-        ego_mask = torch.ne(ego_traj.sum(-1).sum(-1), 0)
+        
+        # 生成有效轨迹掩码（过滤全零填充的无效候选轨迹）
+        ego_mask = torch.ne(ego_traj.sum(-1).sum(-1), 0)  # [B, M]
 
+        # 3. 遍历每个候选分支计算综合评分
         scores = []
-        for i in range(agents_traj.shape[1]):
-            hardcoded_features = ego_traj_features[:, i]
-            interaction_features = self.get_latent_interaction_features(ego_traj[:, i], agents_traj[:, i], agents_states, timesteps)
-            features = torch.cat((hardcoded_features, interaction_features), dim=-1)
-            score = -torch.sum(features * weights, dim=-1)
-            collision_feature = self.calculate_collision(ego_traj[:, i], agents_traj[:, i], agents_states, timesteps)
-            score += -10 * collision_feature
+        for i in range(agents_traj.shape[1]):  # agents_traj.shape[1] = 分支数
+            # 获取当前分支的硬编码特征（速度/加速度等）
+            hardcoded_features = ego_traj_features[:, i]  # [B, 4]
+            
+            # 计算潜在交互特征（与其他交通参与者的时空关系）
+            interaction_features = self.get_latent_interaction_features(
+                ego_traj[:, i],       # 当前分支的自车轨迹
+                agents_traj[:, i],    # 当前分支的周围车辆预测
+                agents_states,        # 周围车辆历史状态
+                timesteps             # 预测时间步
+            )  # [B, 4]
+            
+            # 特征拼接与加权求和（4硬编码特征 + 4交互特征）
+            features = torch.cat((hardcoded_features, interaction_features), dim=-1)  # [B, 8]
+            score = -torch.sum(features * weights, dim=-1)  # 线性加权计算基础评分
+            
+            # 计算碰撞代价（指数级放大碰撞风险）
+            collision_feature = self.calculate_collision(
+                ego_traj[:, i],      # 当前分支自车轨迹
+                agents_traj[:, i],   # 当前分支周围车辆轨迹
+                agents_states,       # 周围车辆状态
+                timesteps            # 时间步
+            )  # [B]
+            score += -10 * collision_feature  # 碰撞代价系数强化（提高安全性权重）
+            
             scores.append(score)
 
-        scores = torch.stack(scores, dim=1)
-        scores = torch.where(ego_mask, scores, float('-inf'))
+        # 4. 整合与后处理
+        scores = torch.stack(scores, dim=1)  # 堆叠分支维度 → [B, M]
+        scores = torch.where(ego_mask, scores, float('-inf'))  # 掩码过滤无效轨迹
 
         return scores, weights

@@ -69,19 +69,45 @@ class DataProcessor(object):
 
         return past_tracked_objects_tensor_list, past_tracked_objects_types
 
-    def get_map(self):        
+    def get_map(self):
+        """ 高精地图特征提取与向量化处理
+        
+        返回:
+        vector_map: 包含多图层地图特征的字典，键为地图要素类型，值为处理后的特征矩阵
+        """
+        # 获取自车初始状态
         ego_state = self.scenario.initial_ego_state
-        ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)
-        route_roadblock_ids = self.scenario.get_route_roadblock_ids()
+        
+        # 构建自车坐标系关键点
+        ego_coords = Point2D(ego_state.rear_axle.x, ego_state.rear_axle.y)  # 后轴中心坐标
+        
+        # 获取路由路径的道路块ID序列
+        route_roadblock_ids = self.scenario.get_route_roadblock_ids()  # 导航路径中的道路块ID列表
+        
+        # 获取当前时刻交通灯状态
         traffic_light_data = self.scenario.get_traffic_light_status_at_iteration(0)
-
+    
+        # 提取周围地图要素（80米半径范围内）
         coords, traffic_light_data = get_neighbor_vector_set_map(
-            self.map_api, self._map_features, ego_coords, self._radius, route_roadblock_ids, traffic_light_data
+            self.map_api,                   # 地图API接口
+            self._map_features,             # 需要提取的地图要素类型 ['LANE', 'ROUTE_LANES', 'CROSSWALK']
+            ego_coords,                     # 自车中心坐标
+            self._radius,                   # 80米范围半径
+            route_roadblock_ids,            # 导航路径道路块ID
+            traffic_light_data              # 交通灯状态数据
         )
-
-        vector_map = map_process(ego_state.rear_axle, coords, traffic_light_data, self._map_features, 
-                                 self._max_elements, self._max_points, self._interpolation_method)
-
+    
+        # 地图特征向量化处理
+        vector_map = map_process(
+            ego_state.rear_axle,            # 自车后轴状态（用于坐标转换）
+            coords,                         # 原始地图要素坐标
+            traffic_light_data,             # 交通灯状态
+            self._map_features,             # 要素类型过滤
+            self._max_elements,             # 各要素最大数量限制 {'LANE':40,...}
+            self._max_points,               # 各要素最大点数限制 {'LANE':50,...}
+            self._interpolation_method      # 坐标插值方法（保持等距采样）
+        )
+    
         return vector_map
 
     def get_ego_agent_future(self):
@@ -203,7 +229,7 @@ class DataProcessor(object):
         # 获取最终叶节点轨迹
         leaves = TrajTree.get_children(leaves)
         second_trajs = np.stack([leaf.total_traj[1:].numpy() for leaf in leaves]).astype(np.float32)
-        
+
         # first_trajs: [N, 30, 7] 短期候选轨迹集
         # second_trajs: [M, 50, 7] 长期候选轨迹集
         return first_trajs, second_trajs

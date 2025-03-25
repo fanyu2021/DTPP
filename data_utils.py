@@ -309,56 +309,64 @@ def get_neighbor_vector_set_map(
     route_roadblock_ids: List[str],
     traffic_light_status_data: List[TrafficLightStatusData],
 ) -> Tuple[Dict[str, MapObjectPolylines], Dict[str, LaneSegmentTrafficLightData]]:
+    """ 提取自车周围向量化地图特征
+    
+    参数:
+    map_api: 高精地图接口对象
+    map_features: 需要提取的地图要素列表 ['LANE', 'CROSSWALK'...]
+    point: 自车全局坐标系坐标 (x, y) [米]
+    radius: 地图要素提取半径 [米]
+    route_roadblock_ids: 导航路径中的道路块ID列表
+    traffic_light_status_data: 当前时刻交通灯状态数据
+
+    返回:
+    coords: 各要素多段线坐标字典 {要素名: MapObjectPolylines对象}
+    traffic_light_data: 各要素交通灯状态字典 {要素名: LaneSegmentTrafficLightData对象}
+
+    异常:
+    ValueError: 当传入无效的地图要素名称时抛出
     """
-    Extract neighbor vector set map information around ego vehicle.
-    :param map_api: map to perform extraction on.
-    :param map_features: Name of map features to extract.
-    :param point: [m] x, y coordinates in global frame.
-    :param radius: [m] floating number about vector map query range.
-    :param route_roadblock_ids: List of ids of roadblocks/roadblock connectors (lane groups) within goal route.
-    :param traffic_light_status_data: A list of all available data at the current time step.
-    :return:
-        coords: Dictionary mapping feature name to polyline vector sets.
-        traffic_light_data: Dictionary mapping feature name to traffic light info corresponding to map elements
-            in coords.
-    :raise ValueError: if provided feature_name is not a valid VectorFeatureLayer.
-    """
+    # 初始化返回数据结构
     coords: Dict[str, MapObjectPolylines] = {}
     traffic_light_data: Dict[str, LaneSegmentTrafficLightData] = {}
     feature_layers: List[VectorFeatureLayer] = []
 
+    # 转换要素名称枚举类型
     for feature_name in map_features:
         try:
-            feature_layers.append(VectorFeatureLayer[feature_name])
+            feature_layers.append(VectorFeatureLayer[feature_name])  # 将字符串转换为枚举类型
         except KeyError:
-            raise ValueError(f"Object representation for layer: {feature_name} is unavailable")
+            raise ValueError(f"不支持的要素类型: {feature_name}")
 
-    # extract lanes
+    # 处理车道线要素 --------------------------------------------------
     if VectorFeatureLayer.LANE in feature_layers:
+        # 提取车道中线/左边界/右边界
         lanes_mid, lanes_left, lanes_right, lane_ids = get_lane_polylines(map_api, point, radius)
-
-        # lane baseline paths
+        
+        # 存储车道中线坐标
         coords[VectorFeatureLayer.LANE.name] = lanes_mid
-
-        # lane traffic light data
+        
+        # 获取车道线对应的交通灯编码
         traffic_light_data[VectorFeatureLayer.LANE.name] = get_traffic_light_encoding(
             lane_ids, traffic_light_status_data
         )
 
-        # lane boundaries
+        # 处理车道边界要素
         if VectorFeatureLayer.LEFT_BOUNDARY in feature_layers:
             coords[VectorFeatureLayer.LEFT_BOUNDARY.name] = MapObjectPolylines(lanes_left.polylines)
         if VectorFeatureLayer.RIGHT_BOUNDARY in feature_layers:
             coords[VectorFeatureLayer.RIGHT_BOUNDARY.name] = MapObjectPolylines(lanes_right.polylines)
 
-    # extract route
+    # 处理导航路线车道 --------------------------------------------------
     if VectorFeatureLayer.ROUTE_LANES in feature_layers:
+        # 根据导航路径提取特定车道线
         route_polylines = get_route_lane_polylines_from_roadblock_ids(map_api, point, radius, route_roadblock_ids)
         coords[VectorFeatureLayer.ROUTE_LANES.name] = route_polylines
 
-    # extract generic map objects
+    # 处理其他地图要素（人行横道等）--------------------------------------------------
     for feature_layer in feature_layers:
         if feature_layer in VectorFeatureLayerMapping.available_polygon_layers():
+            # 提取多边形要素（如人行横道区域）
             polygons = get_map_object_polygons(
                 map_api, point, radius, VectorFeatureLayerMapping.semantic_map_layer(feature_layer)
             )

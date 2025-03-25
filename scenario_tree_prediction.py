@@ -163,88 +163,79 @@ class Decoder(nn.Module):
         return casual_mask
 
     def forward(self, encoder_outputs, ego_traj_inputs, agents_states, timesteps):
-        """
-        场景解码主流程（多模态轨迹预测与评分）
-        
-        输入参数：
-        encoder_outputs - 编码器输出，包含：
-            encoding: [B, S, 256] 融合后的场景特征（S=21参与者+车道线+斑马线总数）
-            mask: [B, S] 无效数据掩码
-        ego_traj_inputs - 自车轨迹输入 [B, T_hist, 6]（历史6维运动特征）
-        agents_states - 所有交通参与者状态 [B, N, 11]（当前时刻11维状态）
-        timesteps - 预测时间步控制参数
+        """ 轨迹预测解码主流程（多模态/多分支预测）
         
         处理流程：
-        1. 输入预处理 ----------------------------------------------------------
+        1. 输入预处理：特征提取与时空编码
+        2. 掩码生成：构建注意力机制所需的各类掩码
+        3. 多分支解码：基于Transformer的层次化轨迹预测
+        4. 输出后处理：轨迹评分与合理性约束
         """
-        # 获取当前时刻智能体状态（截取前10个邻居）
+        # ================= 1. 输入预处理 =================
+        # 提取当前时刻前10个邻居的末状态（x,y,heading）
         current_states = agents_states[:, :self._neighbors, -1]  # [B, 10, 3]
         
-        # 提取场景编码特征及掩码
-        encoding, encoding_mask = encoder_outputs['encoding'], encoder_outputs['mask']  # encoding[B,S,256], mask[B,S]
-        
-        # 自车轨迹编码（历史轨迹→高维特征）
+        # 获取场景编码特征及无效数据掩码
+        encoding, encoding_mask = encoder_outputs['encoding'], encoder_outputs['mask']
+
+        # 自车历史轨迹编码（6维运动特征→256维高维特征）
         ego_traj_ori_encoding = self.ego_traj_encoder(ego_traj_inputs)  # [B, T_hist, 256]
         
-        # 构建树状解码的时空嵌入
-        branch_embedding = ego_traj_ori_encoding[:, :, timesteps-1]  # 按时间步截取分支嵌入 [B, M, 256]
-        ego_traj_ori_encoding = self.pooling_trajectory(ego_traj_ori_encoding)  # 轨迹特征池化 [B, T_pooled, 256]
-        time_embedding = self.time_embed(self.time_index)  # 时间步嵌入 [30分支, 8时间步, 256]
-        tree_embedding = time_embedding[None, :, :, :] + branch_embedding[:, :, None, :]  # 时空联合嵌入 [B, 30, 8, 256]
-        
-        """
-        2. 注意力掩码生成 ------------------------------------------------------
-        """
-        # 生成自车轨迹有效掩码（排除全零填充数据）
+        # 构建时空联合嵌入（分支维度+时间维度）
+        branch_embedding = ego_traj_ori_encoding[:, :, timesteps-1]  # 分支特征 [B, M, 256]
+        ego_traj_ori_encoding = self.pooling_trajectory(ego_traj_ori_encoding)  # 池化压缩时间维度
+        time_embedding = self.time_embed(self.time_index)  # 时间步特征嵌入 [30, 8, 256]
+        tree_embedding = time_embedding[None, :, :, :] + branch_embedding[:, :, None, :]  # 时空融合 [B, 30, 8, 256]
+
+        # ================= 2. 注意力掩码生成 =================
+        # 生成自车轨迹有效掩码（排除全零填充的无效时间步）
         ego_traj_mask = torch.ne(ego_traj_inputs.sum(-1), 0)  # [B, T_hist]
-        ego_traj_mask = ego_traj_mask[:, :, ::(ego_traj_mask.shape[-1]//self._time)]  # 下采样掩码 [B, T_pooled]
+        # 时间维度下采样（匹配池化后的时间步）
+        ego_traj_mask = ego_traj_mask[:, :, ::(ego_traj_mask.shape[-1]//self._time)]  # [B, T_pooled]
         ego_traj_mask = torch.reshape(ego_traj_mask, (ego_traj_mask.shape[0], -1))  # 展平 [B, T_pooled*M]
-        
-        # 环境注意力掩码（排除无效场景编码）
-        env_mask = torch.einsum('ij,ik->ijk', ego_traj_mask, encoding_mask.logical_not())  # [B, T_pooled*M, S]
-        env_mask = torch.where(env_mask == 1, 0, -1e9)  # 转换为softmax掩码格式
-        env_mask = env_mask.repeat(self._nheads, 1, 1)  # 扩展为多头掩码 [n_heads*B, T_pooled*M, S]
-        
-        # 自车条件掩码（因果掩码防止未来信息泄漏）
-        ego_condition_mask = self.casual_mask[None, :, :] * ego_traj_mask[:, :, None]  # [B, T_pooled*M, T_pooled*M]
-        ego_condition_mask = torch.where(ego_condition_mask == 1, 0, -1e9)  # 转换为softmax掩码
-        ego_condition_mask = ego_condition_mask.repeat(self._nheads, 1, 1)  # 扩展多头 [n_heads*B, T_pooled*M, T_pooled*M]
-        
-        """
-        3. 多分支轨迹解码 ------------------------------------------------------
-        """
+
+        # 环境注意力掩码（过滤无效的道路元素编码）
+        env_mask = torch.einsum('ij,ik->ijk', ego_traj_mask, encoding_mask.logical_not())
+        env_mask = torch.where(env_mask == 1, 0, -1e9)  # 转换为softmax可处理的-∞掩码
+        env_mask = env_mask.repeat(self._nheads, 1, 1)  # 扩展为多头注意力格式 [n_heads*B, ...]
+
+        # 自车条件因果掩码（防止解码时看到未来信息）
+        ego_condition_mask = self.casual_mask[None, :, :] * ego_traj_mask[:, :, None]
+        ego_condition_mask = torch.where(ego_condition_mask == 1, 0, -1e9)
+        ego_condition_mask = ego_condition_mask.repeat(self._nheads, 1, 1)
+
+        # ================= 3. 多分支轨迹解码 =================
         agents_trajecotries = []
-        # 遍历每个邻居车辆进行预测（10个邻居）
-        for i in range(self._neighbors):
-            # 构建可学习查询（当前车辆编码 + 时空嵌入）
-            query = encoding[:, i+1, None, None] + tree_embedding  # [B, 30分支, 8时间步, 256]
-            query = torch.reshape(query, (query.shape[0], -1, query.shape[-1]))  # 展平 [B, 240, 256]
+        for i in range(self._neighbors):  # 遍历每个邻居车辆
+            # 构建层次化查询特征（当前车辆编码+时空嵌入）
+            query = encoding[:, i+1, None, None] + tree_embedding  # [B, 30, 8, 256]
+            query = torch.reshape(query, (query.shape[0], -1, 256))  # 展平时间/分支维度 [B, 240, 256]
+
+            # 环境感知解码（道路结构/障碍物/其他车辆影响）
+            env_decoding = self.environment_decoder(query, encoding, encoding, env_mask)
             
-            # 环境感知解码（关注道路结构、其他车辆等）
-            env_decoding = self.environment_decoder(query, encoding, encoding, env_mask)  # [B, 240, 256]
-            
-            # 自车条件解码（关注自车意图对当前车辆的影响）
-            ego_traj_encoding = torch.reshape(ego_traj_ori_encoding, 
-                (ego_traj_ori_encoding.shape[0], -1, ego_traj_ori_encoding.shape[-1]))  # [B, T_pooled*M, 256]
-            ego_condition_decoding = self.ego_condition_decoder(query, ego_traj_encoding, ego_traj_encoding, ego_condition_mask)
-            
-            # 轨迹预测（融合环境与自车条件）
-            decoding = torch.cat([env_decoding, ego_condition_decoding], dim=-1)  # [B, 240, 512]
+            # 自车意图条件解码（考虑ego车辆对当前车辆的行为影响）
+            ego_condition_decoding = self.ego_condition_decoder(
+                query, 
+                torch.reshape(ego_traj_ori_encoding, (ego_traj_ori_encoding.shape[0], -1, 256)), 
+                ego_traj_ori_encoding, 
+                ego_condition_mask
+            )
+
+            # 特征融合与轨迹生成（512=256环境特征+256自车条件特征）
+            decoding = torch.cat([env_decoding, ego_condition_decoding], dim=-1)
             trajectory = self.agent_traj_decoder(decoding, current_states[:, i])  # [B, 30, 80, 3]
             agents_trajecotries.append(trajectory)
+
+        # ================= 4. 输出后处理 =================
+        # 堆叠邻居预测结果（维度说明：[批次, 分支数, 邻居数, 时间点, 状态]）
+        agents_trajecotries = torch.stack(agents_trajecotries, dim=2)  # [B, 30, 10, 80, 3]
         
-        """
-        4. 输出后处理 ----------------------------------------------------------
-        """
-        # 堆叠所有邻居预测结果
-        agents_trajecotries = torch.stack(agents_trajecotries, dim=2)  # [B, 30分支, 10邻居, 80点, 3]
-        
-        # 轨迹评分（计算各分支的合理性分数）
+        # 轨迹评分（计算各预测分支的合理性与冲突分数）
         scores, weights = self.scorer(ego_traj_inputs, encoding[:, 0], agents_trajecotries, current_states, timesteps)
         
-        # 自车轨迹正则化（约束自车预测轨迹的合理性）
+        # 自车轨迹正则化（确保预测轨迹符合动力学约束）
         ego_traj_regularization = self.ego_traj_decoder(encoding[:, 0])  # [B, 240]
-        ego_traj_regularization = torch.reshape(ego_traj_regularization, 
-            (ego_traj_regularization.shape[0], 80, 3))  # [B, 80点, 3]
-        
+        ego_traj_regularization = torch.reshape(ego_traj_regularization, (-1, 80, 3))  # 重构为80个路径点
+
         return agents_trajecotries, scores, ego_traj_regularization, weights
