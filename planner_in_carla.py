@@ -28,6 +28,7 @@ from custom_format import *
 logger = create_colored_logger(name=__name__)
 
 from debug.dtpp_debug import DtppDebuger
+from debug.world_debuger import WorldDebuger
 
 
 def path_to_linestring(path: List[EgoState]) -> LineString:
@@ -60,8 +61,11 @@ class TrajTree:
 
     def expand_children(self, paths, horizon, speed_limit, planner):
         trajs = planner.gen_trajectories(self.state, horizon, paths, speed_limit, self.isroot())
+        if trajs is None:
+            return False
         children = [TrajTree(traj, self, self.depth + 1) for traj in trajs]
         self.expand_set(children)
+        return True
 
     def isroot(self):
         return self.parent is None
@@ -209,8 +213,8 @@ class CarlaTreePlanner:
 
         # sort paths by cost
         candidate_paths = []
-        # nums = len(candiate_paths)
-        nums = 3
+        nums = len(candiate_paths)
+        # nums = 3
         for cost in sorted(candiate_paths.keys())[:nums]:
             path = candiate_paths[cost]
             path = self.post_process(path)
@@ -310,6 +314,8 @@ class CarlaTreePlanner:
     
 
     def plan(self, iteration, dtpp_map, vehicle: carla.Actor, env_inputs, candidate_lanes, traffic_light, observation, debug=False):
+        start_time_s = time.time()
+        world_debuger = WorldDebuger(actor=vehicle)
         # get environment information
         self.ego_state = get_ego_state_list_from_actor(0, ego=vehicle)
         self.candidate_lane_edge_ids = [lane.id for lane in candidate_lanes]
@@ -343,6 +349,8 @@ class CarlaTreePlanner:
         near_lanes = dtpp_map.get_candidate_lanes(vehicle)
         # logger.debug(f'candidate_paths: {candidate_paths}')
         candidate_paths = self.generate_paths(near_lanes)
+        world_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
+        candidate_paths = candidate_paths[:3]
         if len(candidate_paths) == 0:
             logger.error('No candidate paths!!!')
 
@@ -351,6 +359,9 @@ class CarlaTreePlanner:
         # self.dtpp_debuger.draw_dtpp_map(actor=vehicle, dtpp_map=dtpp_map)
         # self.dtpp_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
         # self.dtpp_debuger.show()
+
+        world_debuger.plot_candiate_lanes(dtpp_map=dtpp_map)
+        
 
         # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
         self.speed_limit = self.target_speed # TODO(fanyu): 道路限速
@@ -364,18 +375,24 @@ class CarlaTreePlanner:
         # query the model
         parent_scores = {}
         trajs = [leaf.total_traj[1:] for leaf in leaves]
+        rule_stage_first_time_s = time.time() - start_time_s
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.first_stage_horizon*10)
+        predict_first_time = time.time() - (start_time_s + rule_stage_first_time_s)
         indices = torch.topk(scores, self.n_candidates_expand)[1][0]
         pruned_leaves = []
         for i in indices:
             if i.item() < len(leaves):
+                # res = leaves[i].expand_children(candidate_paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
+                # if not res:
+                #     continue
                 pruned_leaves.append(leaves[i])
                 parent_scores[leaves[i]] = scores[0, i].item()
 
         # expand leaves with higher scores
         for leaf in pruned_leaves:
-            logger.warning(f'leaf.state:{leaf.state[:2]}')
-            leaf.expand_children(candidate_paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
+            logger.debug(f'leaf.state:{leaf.state[:2]}')
+            res = leaf.expand_children(candidate_paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
+            
 
         # get all leaves
         leaves = TrajTree.get_children(leaves)
@@ -384,8 +401,10 @@ class CarlaTreePlanner:
 
         # query the model      
         trajs = [leaf.total_traj[1:] for leaf in leaves]
+        rule_stage_second_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time)
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.horizon*10)
-        
+        predict_second_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time
+                                               + rule_stage_second_time_s)
         # calculate scores
         children_scores = {}
         for i, leaf in enumerate(leaves):
@@ -407,7 +426,14 @@ class CarlaTreePlanner:
 
         # get the best trajectory
         best_traj = best_parent.children[best_child_index].total_traj[1:, :3]
-    
+        cost_select_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time
+                                             + rule_stage_second_time_s + predict_second_time_s)
+        
+        logger.info(f'\n first_rule_time:{int(rule_stage_first_time_s*1000)}ms,\
+                    first_predict_time:{int(predict_first_time*1000)}ms,\
+                    second_rule_time:{int(rule_stage_second_time_s*1000)}ms,\
+                    second_predict_time:{int(predict_second_time_s*1000)}ms,\
+                    cost_selected_time:{int(cost_select_time_s*1000)}ms')
         # plot 
         # if debug:
         # if True:

@@ -15,6 +15,7 @@ logger = create_colored_logger(name=__name__)
 import carla
 from agents.navigation.controller import VehiclePIDController
 from agents.tools.misc import draw_waypoints, get_speed
+from debug.world_debuger import WorldDebuger
 
 
 class RoadOption(IntEnum):
@@ -301,7 +302,10 @@ class LocalPlanner(object):
             target_transform = transforms[0]
             control = self._vehicle_controller.run_step(self._target_speed, target_transform)
         if debug:
-            draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+            # draw_waypoints(self._vehicle.get_world(), [self.target_waypoint], 1.0)
+            WorldDebuger.draw_trajectory(self._vehicle.get_world(), e2e_trajectory._trajectory)
+            
+
         return control, transforms
     
     def get_transforms_from_states(self, states, debug=False):

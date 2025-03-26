@@ -13,7 +13,7 @@ def cubic_spline_coefficients(x0, dx0, xf, dxf, tf):
 
 def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     t = torch.arange(N+1).to(v0.device) * tf / N
-    logger.debug(f't = {t}')
+#    logger.debug(f't = {t}')
     tp = t[..., None] ** torch.arange(4).to(v0.device)
     dtp = t[..., None] ** torch.tensor([0, 0, 1, 2]).to(v0.device) * torch.arange(4).to(v0.device)
     
@@ -25,19 +25,36 @@ def compute_spline_xyvaqrt(v0, dv0, vf, tf, path, N, offset):
     s = torch.cumsum(v * tf / N, dim=0) # 沿着行方向累加，得到累积位移
     # logger.warning(f's={s}')
     s = torch.cat((torch.zeros(1, 1).to(v0.device), s[:-1]), dim=0)
-    # logger.warning(f's={s}')
     s += offset
     # logger.warning(f's={s}')
+    # logger.warning(f's.shape={s.shape}')
     i = (s / 0.1).long()
-
-    if i[-1] > path.shape[0] - 1:
-        logger.warning(f'--- i[-1]: {i[-1]}, path.shape[0] - 1: {path.shape[0] - 1}')
-        return
+    # logger.debug(f'i.shape = {i.shape}')
+    # logger.debug(f'i={i}')
+    end_ind = path.shape[0] - 1
+    if i[-1] > end_ind:
+        # logger.warning(f'--- i[-1]: {i[-1]}, path.shape[0] - 1: {path.shape[0] - 1}')
+    #     # i[end_ind+1:] = i[end_ind]
+    #     return
+        i_ind = len(i)-1
+        for j in range(i_ind, -1, -1):
+            if i[j] < end_ind:
+                break
+        # logger.debug(f'j = {j}')
+        i[j:] = i[j]
+        v[j:,0] = v[j,0]
+        a[j:,0] = a[j,0]
+    # ind = min(i[-1], path.shape[0]-1)
+    # i = i[:ind]
+    # logger.debug(f'i = {i}')
 
     x = path[i, 0]
     y = path[i, 1]
     yaw = path[i, 2]
     r = path[i, 3]
+    # v = v[i]
+    # a = a[i]
+    # t = t[i]
 
     return torch.cat((x, y, yaw, v, a, r, t.unsqueeze(-1)), -1).squeeze(0)
 
@@ -76,7 +93,7 @@ class SplinePlanner:
                 else:
                     xf_set.append(xf)
                     trajs.append(traj)
-                    logger.warning(f'short final:{traj[-1, :2]}')
+                    # logger.warning(f'short final:{traj[-1, :2]}')
 
         trajs = torch.stack(trajs)
         
@@ -135,7 +152,7 @@ class SplinePlanner:
             for v in self.v_grid:
                 traj = self.calc_trajectory(x0[3], x0[4], v, tf, path, (self.horizon-self.first_stage_horizion)*10, offset) # [x, y, yaw, v, a, r, t]
                 if traj is None:
-                    print('--- calculate trajectory failed!')
+                    logger.debug('--- calculate trajectory failed!')
                     continue
 
                 xf = traj[-1, :2]
@@ -181,21 +198,21 @@ class SplinePlanner:
 
         if is_root:
             v_min = max(v0 - 4.0 * tf, 0.0)
-            v_max = min(v0 + 2.4 * tf, speed_limit)
+            v_max = min(v0 + 1 * tf, speed_limit)
             self.v_grid = torch.linspace(v_min, v_max, 10).to(x0.device)
             trajs = self.gen_short_term_trajs(x0, tf, paths, dyn_filter=False)
             assert trajs is not None, "No feasible short term trajectory"
         else:
             v_min = max(v0 - tf, 0.0)
-            v_max = min(v0 + tf, speed_limit)
+            v_max = min(v0 + 0.1*tf, speed_limit)
             logger.debug(f"v_min: {v_min}, v_max: {v_max}, v0: {v0}, tf: {tf}, speed_limit: {speed_limit}")
             self.v_grid = torch.linspace(v_min, v_max, 5).to(x0.device)
             trajs = self.gen_long_term_trajs(x0, tf, paths, dyn_filter=False)
             assert trajs is not None, "No feasible long term trajectory"
 
-        # if trajs is None:
-        #     print(f"No feasible trajectory")
-        #     return None
+        if trajs is None:
+            logger.error(f"No long feasible trajectory")
+            return None
         # adjust timestep
         if (not is_root):
             trajs[:, :, -1] += self.horizon - self.first_stage_horizion

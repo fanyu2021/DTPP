@@ -30,6 +30,7 @@ from scenario_tree_prediction import *
 from planner_in_carla import CarlaTreePlanner
 
 from debug.dtpp_debug import DtppDebuger
+from debug.world_debuger import WorldDebuger
 
 T:int = 8
 DT:float = 0.1
@@ -415,6 +416,7 @@ class DtppAgent(BasicAgent):
             
         # Convert relative poses to absolute states and wrap in a trajectory object
         states = transform_predictions_to_states(plan, self._dtpp_inputs._ego_state_buffer, self._future_horizon, 0.1)
+        WorldDebuger.draw_states(self._vehicle.get_world(), states)
         trajectory = InterpolatedTrajectory(states)
         logger.info(f'Step {self._iteration+1} Planning time: {time.perf_counter() - start_time:.3f} s')
 

@@ -12,3 +12,4 @@ training_log/
 *.pyc
 *.swp
 *.mp4
+result/

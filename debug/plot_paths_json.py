@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import json
 import matplotlib.pyplot as plt
 
@@ -5,6 +7,8 @@ import matplotlib.pyplot as plt
 def plot_paths(paths):
     i = 0
     for path in paths:
+        print(path['x'])
+        print(path['y'])
         plt.plot(path['x'], path['y'], '*')
         plt.text(path['x'][-1], path['y'][-1], str(i))
         i+=1
@@ -18,6 +22,7 @@ with open('paths_json.bin', 'rb') as file:
     json_str = byte_data.decode()
     # 使用 json.loads() 方法将 JSON 字符串解析为列表
     loaded_list = json.loads(json_str)
+    fig = plt.figure()
     # print(loaded_list)
     plot_paths(loaded_list)
     plt.axis('equal')
