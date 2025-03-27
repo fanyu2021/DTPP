@@ -178,7 +178,7 @@ class Decoder(nn.Module):
         # 获取场景编码特征及无效数据掩码
         encoding, encoding_mask = encoder_outputs['encoding'], encoder_outputs['mask']
 
-        # 自车历史轨迹编码（6维运动特征→256维高维特征）
+        # 自车轨迹轨迹树编码（6维运动特征→256维高维特征）
         ego_traj_ori_encoding = self.ego_traj_encoder(ego_traj_inputs)  # [B, T_hist, 256]
         
         # 构建时空联合嵌入（分支维度+时间维度）

@@ -509,23 +509,23 @@ class TreePlanner:
         # 第一阶段轨迹评分
         trajs = [leaf.total_traj[1:] for leaf in leaves]
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.first_stage_horizon*10)
-        indices = torch.topk(scores, self.n_candidates_expand)[1][0]  # 选择Top-K高分轨迹
+        indices = torch.topk(scores, self.n_candidates_expand)[1][0]  # 选择Top-K高分轨迹, 默认5条
         
         # 保留有效高分叶子节点
         pruned_leaves = []
         for i in indices:
-            if i.item() < len(leaves):
+            if i.item() < len(leaves): # 因为leaves数量有可能比较少，所以需要判断索引是否超出范围
                 pruned_leaves.append(leaves[i])
-                parent_scores[leaves[i]] = scores[0, i].item()
+                parent_scores[leaves[i]] = scores[0, i].item() # 记录第一层节点分数
 
         # ------------------ 第二阶段轨迹扩展（5秒）------------------
         for leaf in pruned_leaves:
             leaf.expand_children(paths, self.horizon-self.first_stage_horizon, self.speed_limit, self.planner)
         
         # ------------------ 最终轨迹选择 ------------------
-        leaves = TrajTree.get_children(leaves)  # 获取所有叶子节点
+        leaves = TrajTree.get_children(leaves)   # 获取第二层所有叶子节点
         if len(leaves) > self.n_candidates_max:  # 随机采样控制计算量
-           leaves = random.sample(leaves, self.n_candidates_max)
+           leaves = random.sample(leaves, self.n_candidates_max) # 随机选择30个叶子节点
 
         # 最终轨迹评分
         trajs = [leaf.total_traj[1:] for leaf in leaves]
