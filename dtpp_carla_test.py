@@ -2,7 +2,7 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-02-20 17:01:12
-LastEditTime: 2025-03-25 17:48:09
+LastEditTime: 2025-04-08 10:43:43
 LastEditors: fanyu fantiming@yeah.net
 Description: 
 '''
@@ -204,6 +204,9 @@ class World(object):
         # TODO(fanyu): 生成多个车辆
         # 
 
+        # fanyu： 移除建筑物
+        # self.remove_buildings()
+
         if self._args.sync:
             self.world.tick()
         else:
@@ -263,6 +266,18 @@ class World(object):
         for actor in actors:
             if actor is not None:
                 actor.destroy()
+
+    # def remove_buildings(self):
+    #     """Remove buildings: TODO(fanyu):暂时发现没有效果"""
+    #     actors = self.world.get_actors().filter('static.prop.*')
+        
+    #     # buildings = [x for x in actors if x.type_id.startswith('static.prop.building')]
+    #     buildings = [x for x in actors if building in x.type_id]
+    #     for building in buildings:
+    #         logger.debug(f"--- remove building: {building.type_id}")
+    #         building.set_simulate_physics(False)
+    #         building.set_visibility(False)
+    #         building.destroy()
 
 
 # ==============================================================================
@@ -631,7 +646,7 @@ class CameraManager(object):
         bound_z = 0.5 + self._parent.bounding_box.extent.z
         attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=8.0*bound_z), carla.Rotation(pitch=15.0)), attachment.SpringArmGhost), # defualt 视角
+            (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost), # defualt 视角
             (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=24.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
             (carla.Transform(carla.Location(x=+0.8*bound_x, y=+0.0*bound_y, z=1.3*bound_z)), attachment.Rigid),
             (carla.Transform(carla.Location(x=+1.9*bound_x, y=+1.0*bound_y, z=1.2*bound_z)), attachment.SpringArmGhost),
@@ -754,6 +769,7 @@ def game_loop(args):
         traffic_manager = client.get_trafficmanager()
         # sim_world = client.get_world()
         sim_world = client.load_world(args.map)
+        # sim_world.unload_map_layer(carla.MapLayer.All) # 隐藏所有建筑物
 
         if args.sync:
             settings = sim_world.get_settings()
@@ -777,6 +793,7 @@ def game_loop(args):
         world = World(sim_world, hud, args)
         controller = KeyboardControl(world)
         opt_dict = {'sampling_resolution': 0.5}
+        agent = None
         if args.agent == "Basic":
             agent = BasicAgent(world.player, 30, opt_dict)
             agent.follow_speed_limits(True)
@@ -794,8 +811,8 @@ def game_loop(args):
 
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
-        # destination = random.choice(spawn_points).location
-        destination = spawn_points[259].location # TODO(fanyu): Only used for cycle test.
+        destination = random.choice(spawn_points).location
+        # destination = spawn_points[259].location # TODO(fanyu): Only used for cycle test.
         agent.set_destination(destination)
         if args.agent == "Dtpp":
             agent.set_dtpp_map()
@@ -858,6 +875,10 @@ def game_loop(args):
             traffic_manager.set_synchronous_mode(True)
 
             world.destroy()
+            if isinstance(agent, DtppAgent):
+                # agent._carla_trajectory_planner._world_debuger.write_times_json()
+                logger.info("Write times json file!")
+            logger.info('destroying world')
 
         pygame.quit()
 
@@ -949,7 +970,7 @@ def get_argparser():
     argparser.add_argument(
         '-m', '--map',  type=str,
         help='Choose a map (default: Town05)',
-        default='Town05')
+        default='Town10HD')
     argparser.add_argument(
         '-d', '--model_path', type=str,
         help='model path', 

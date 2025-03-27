@@ -234,8 +234,8 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     agents = past_tracked_objects
 
     anchor_ego_state = ego_history[-1, :].squeeze().clone()
-    logger.warning(f"--- ego_history.shape: {ego_history.shape}")
-    logger.info(f"---- anchor_ego_state: {anchor_ego_state}")
+    # logger.warning(f"--- ego_history.shape: {ego_history.shape}")
+    # logger.info(f"---- anchor_ego_state: {anchor_ego_state}")
     ego_tensor = convert_absolute_quantities_to_relative(ego_history, anchor_ego_state)
     agent_history = filter_agents_tensor(agents, reverse=True)
     agent_types = tracked_objects_types[-1]
@@ -259,7 +259,7 @@ def agent_past_process(past_ego_states, past_time_stamps, past_tracked_objects, 
     agents = torch.zeros((num_agents, agents_tensor.shape[0], agents_tensor.shape[-1]+3), dtype=torch.float32)
 
     # sort agents according to distance to ego
-    logger.info(f'--- agents_tensor.shape = {agents_tensor.shape}')
+    # logger.info(f'--- agents_tensor.shape = {agents_tensor.shape}')
     distance_to_ego = torch.norm(agents_tensor[-1, :, :2], dim=-1)
     indices = list(torch.argsort(distance_to_ego).numpy())[:num_agents]
 

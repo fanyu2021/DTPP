@@ -174,7 +174,7 @@ class CarlaTreePlanner:
         self.first_stage_horizon = 3 # [s]
         self.n_candidates_expand = n_candidates_expand # second stage
         self.n_candidates_max = n_candidates_max # max number of candidates
-        self.planner = SplinePlanner(self.first_stage_horizon, self.horizon)  
+        self.planner = SplinePlanner(self.first_stage_horizon, self.horizon) 
         self.dtpp_debuger = DtppDebuger()
 
 
@@ -314,11 +314,12 @@ class CarlaTreePlanner:
     
 
     def plan(self, iteration, dtpp_map, vehicle: carla.Actor, env_inputs, candidate_lanes, traffic_light, observation, debug=False):
-        start_time_s = time.time()
-        world_debuger = WorldDebuger(actor=vehicle)
+        start_time_ms = time.time()*1e3 # ms
+        self._world_debuger = WorldDebuger(actor=vehicle)
+        time_usedict_ms = {"r1": 0, "p1": 0, "r2": 0, "p2": 0, "cs": 0}
         # get environment information
         self.ego_state = get_ego_state_list_from_actor(0, ego=vehicle)
-        self.candidate_lane_edge_ids = [lane.id for lane in candidate_lanes]
+        # self.candidate_lane_edge_ids = [lane.id for lane in candidate_lanes]
         # self.route_roadblocks = route_roadblocks
         self.traffic_light = traffic_light
         object_types = [TrackedObjectType.VEHICLE, TrackedObjectType.BARRIER,
@@ -349,7 +350,7 @@ class CarlaTreePlanner:
         near_lanes = dtpp_map.get_candidate_lanes(vehicle)
         # logger.debug(f'candidate_paths: {candidate_paths}')
         candidate_paths = self.generate_paths(near_lanes)
-        world_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
+        self._world_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
         candidate_paths = candidate_paths[:3]
         if len(candidate_paths) == 0:
             logger.error('No candidate paths!!!')
@@ -360,7 +361,7 @@ class CarlaTreePlanner:
         # self.dtpp_debuger.plot_generated_paths(candidate_paths, actor=vehicle)
         # self.dtpp_debuger.show()
 
-        world_debuger.plot_candiate_lanes(dtpp_map=dtpp_map)
+        self._world_debuger.plot_candiate_lanes(dtpp_map=dtpp_map)
         
 
         # self.speed_limit = edges[0].speed_limit_mps or self.target_speed # TODO(fanyu): 道路限速
@@ -375,9 +376,9 @@ class CarlaTreePlanner:
         # query the model
         parent_scores = {}
         trajs = [leaf.total_traj[1:] for leaf in leaves]
-        rule_stage_first_time_s = time.time() - start_time_s
+        time_usedict_ms["r1"] = time.time()*1e3 - start_time_ms
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.first_stage_horizon*10)
-        predict_first_time = time.time() - (start_time_s + rule_stage_first_time_s)
+        time_usedict_ms["p1"] = time.time()*1e3 - (start_time_ms + time_usedict_ms["r1"])
         indices = torch.topk(scores, self.n_candidates_expand)[1][0]
         pruned_leaves = []
         for i in indices:
@@ -401,10 +402,10 @@ class CarlaTreePlanner:
 
         # query the model      
         trajs = [leaf.total_traj[1:] for leaf in leaves]
-        rule_stage_second_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time)
+        time_usedict_ms["r2"] = time.time()*1e3 - (start_time_ms + time_usedict_ms["r1"] + time_usedict_ms["p1"])
         agent_trajectories, scores = self.predict(encoder_outputs, trajs, agent_states, self.horizon*10)
-        predict_second_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time
-                                               + rule_stage_second_time_s)
+        time_usedict_ms["p2"] = time.time()*1e3 - (start_time_ms + time_usedict_ms["r1"] + time_usedict_ms["p1"]
+                                                + time_usedict_ms["r2"])
         # calculate scores
         children_scores = {}
         for i, leaf in enumerate(leaves):
@@ -426,14 +427,11 @@ class CarlaTreePlanner:
 
         # get the best trajectory
         best_traj = best_parent.children[best_child_index].total_traj[1:, :3]
-        cost_select_time_s = time.time() - (start_time_s + rule_stage_first_time_s + predict_first_time
-                                             + rule_stage_second_time_s + predict_second_time_s)
+        time_usedict_ms["cs"] = time.time()*1e3 - (start_time_ms + time_usedict_ms["r1"] + time_usedict_ms["p1"]
+                                             + time_usedict_ms["r2"] + time_usedict_ms["p2"])
+        # self._world_debuger.record_times(time_usedict_ms)
+
         
-        logger.info(f'\n first_rule_time:{int(rule_stage_first_time_s*1000)}ms,\
-                    first_predict_time:{int(predict_first_time*1000)}ms,\
-                    second_rule_time:{int(rule_stage_second_time_s*1000)}ms,\
-                    second_predict_time:{int(predict_second_time_s*1000)}ms,\
-                    cost_selected_time:{int(cost_select_time_s*1000)}ms')
         # plot 
         # if debug:
         # if True:

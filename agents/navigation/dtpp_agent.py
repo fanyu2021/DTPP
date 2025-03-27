@@ -74,7 +74,7 @@ class DtppAgent(BasicAgent):
         self._dtpp_inputs = DtppInputs(vehicle=self._vehicle)
         torch.set_grad_enabled(False)
         # self._planner = Planner(model_path=model_path, device=device)
-        self._tree_planner = self._get_tree_planner(model_path=model_path, device=device)
+        self._carla_trajectory_planner = self._get_tree_planner(model_path=model_path, device=device)
         self._future_horizon = T
         self._N_points = int(T/DT)
         
@@ -105,7 +105,7 @@ class DtppAgent(BasicAgent):
         decoder.load_state_dict(model['decoder'])
         decoder.to(device)
         decoder.eval()
-        self._carla_trajectory_planner = CarlaTreePlanner(device, encoder, decoder)
+        return CarlaTreePlanner(device, encoder, decoder)
 
         
         

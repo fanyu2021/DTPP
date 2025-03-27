@@ -96,7 +96,7 @@ class DtppMap(object):
 
     def _get_lane(self, patch: geom.Polygon) -> List[DtppMapObject]:
         dtpp_lanes: List[DtppMapObject] = []
-        logger.debug(f"--- function: {self._get_lane.__name__}")
+        # logger.debug(f"--- function: {self._get_lane.__name__}")
         for lane in self._topology:
             # lane_line = [Point2D(wp.transform.location.x, wp.transform.location.y) for wp in lane['path']]
             # lane = [Point2D(wp.transform.location.x, wp.transform.location.y) for wp in lane['path']]

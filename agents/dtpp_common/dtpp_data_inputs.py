@@ -72,7 +72,7 @@ class DtppInputs(object):
         ego_agent_past = sampled_past_ego_states_to_tensor(self._ego_state_buffer)
         past_tracked_objects_tensor_list, past_tracked_objects_types = sampled_tracked_agents_to_tensor_list(self._observation_buffer)
         time_stamps_past = sampled_past_timestamps_to_tensor([state.time_point for state in self._ego_state_buffer])
-        logger.debug(f"--- ego_time_diff: {np.diff(np.array([state.time_point.time_s for state in self._ego_state_buffer]))}")
+        # logger.debug(f"--- ego_time_diff: {np.diff(np.array([state.time_point.time_s for state in self._ego_state_buffer]))}")
         # logger.debug(f"--- time_stamps_past: {[state.time_point.time_s for state in self._ego_state_buffer]}")
         self._ego_state = self._ego_state_buffer[-1]
         self._observation = self._observation_buffer[-1]
@@ -146,8 +146,8 @@ class DtppInputs(object):
                     logger.debug(
                         f"Found traffic light lane entry_point: ({entry.road_id}, {entry.lane_id}, {entry.junction_id})"
                     )
-        if not traffic_light_lanes:
-            logger.debug("No traffic light lane found")
+        # if not traffic_light_lanes:
+        #     logger.debug("No traffic light lane found")
         return traffic_light_lanes
 
 

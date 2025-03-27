@@ -20,7 +20,7 @@ import carla
 from agents.dtpp_common.dtpp_map import DtppMap
 from agents.dtpp_common.dtpp_planner_utils import get_vehicle_params_from_actor, get_rear_axle_world_coordinates
 from planner_utils import trajectory_smoothing
-# from debug.debug_utils import transform_to_global_frame, transform_to_ego_frame
+from debug.debug_utils import transform_to_global_frame, transform_to_ego_frame
 
 colors = ["blue", "green", "red", "orange", "purple", "brown"]
 
@@ -51,7 +51,7 @@ class DtppDebuger(metaclass=SingletonMeta):
         self._p.grid.visible = True
         self._p.xaxis.axis_label = "X"
         self._p.yaxis.axis_label = "Y"
-        self._p.legend.location = "top"
+        # self._p.legend.location = "top"
 
     def _set_plt(self):
         plt.figure(figsize=(10, 10))
@@ -331,7 +331,7 @@ class DtppDebuger(metaclass=SingletonMeta):
         # print(f"g_path.shape:{g_paths}")
         xs, ys = [], []
         for i, path in enumerate(g_paths):
-            global_path = self.transform_to_global_frame(path, actor)
+            global_path = transform_to_global_frame(path, actor)
             x_list = [pt[0] for pt in global_path]
             y_list = [pt[1] for pt in global_path]
             xs.append(x_list)
