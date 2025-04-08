@@ -2,7 +2,7 @@
 Copyright (c) 2025 by GAC R&D Center, All Rights Reserved.
 Author: 范雨
 Date: 2025-02-20 17:01:12
-LastEditTime: 2025-04-08 10:43:43
+LastEditTime: 2025-04-08 12:06:47
 LastEditors: fanyu fantiming@yeah.net
 Description: 
 '''
@@ -646,7 +646,7 @@ class CameraManager(object):
         bound_z = 0.5 + self._parent.bounding_box.extent.z
         attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost), # defualt 视角
+            # (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost), # defualt 视角
             (carla.Transform(carla.Location(x=0.0*bound_x, y=+0.0*bound_y, z=24.0*bound_z), carla.Rotation(pitch=-90.0)), attachment.Rigid), # 俯视
             (carla.Transform(carla.Location(x=+0.8*bound_x, y=+0.0*bound_y, z=1.3*bound_z)), attachment.Rigid),
             (carla.Transform(carla.Location(x=+1.9*bound_x, y=+1.0*bound_y, z=1.2*bound_z)), attachment.SpringArmGhost),
@@ -970,7 +970,7 @@ def get_argparser():
     argparser.add_argument(
         '-m', '--map',  type=str,
         help='Choose a map (default: Town05)',
-        default='Town10HD')
+        default='Town05')
     argparser.add_argument(
         '-d', '--model_path', type=str,
         help='model path', 
