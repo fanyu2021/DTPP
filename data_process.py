@@ -37,32 +37,36 @@ class DataProcessor(object):
     def get_ego_agent(self):
         self.anchor_ego_state = self.scenario.initial_ego_state
         
+        # Get all past poses of the ego relative to the ego coordinate system
+        # 过去2s内，20个自车状态
         past_ego_states = self.scenario.get_ego_past_trajectory(
             iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
         )
-
+        # 将自车当前状态加入过去20个状态中，末尾为当前状态，时间升序
         sampled_past_ego_states = list(past_ego_states) + [self.anchor_ego_state]
         past_ego_states_tensor = sampled_past_ego_states_to_tensor(sampled_past_ego_states)
-
+        # 与上述对应的时间戳序列，加入了当前车辆位置的时间戳
         past_time_stamps = list(
             self.scenario.get_past_timestamps(
                 iteration=0, num_samples=self.num_past_poses, time_horizon=self.past_time_horizon
             )
         ) + [self.scenario.start_time]
-
+        # 使用的是微妙级的时间戳
         past_time_stamps_tensor = sampled_past_timestamps_to_tensor(past_time_stamps)
 
         return past_ego_states_tensor, past_time_stamps_tensor
     
     def get_neighbor_agents(self):
+        # 当前track的障碍物
         present_tracked_objects = self.scenario.initial_tracked_objects.tracked_objects
+        # 历史2s内，20帧strack的障碍物
         past_tracked_objects = [
             tracked_objects.tracked_objects
             for tracked_objects in self.scenario.get_past_tracked_objects(
                 iteration=0, time_horizon=self.past_time_horizon, num_samples=self.num_past_poses
             )
         ]
-
+        # 与前面ego相对应，过去2s内track的障碍物，末尾为当前时刻track的障碍物
         sampled_past_observations = past_tracked_objects + [present_tracked_objects]
         past_tracked_objects_tensor_list, past_tracked_objects_types = \
             sampled_tracked_objects_to_tensor_list(sampled_past_observations)
@@ -270,7 +274,7 @@ class DataProcessor(object):
 
     def work(self, save_dir, debug=False):
         # 遍历所有场景数据（显示进度条）
-        for scenario in tqdm(self._scenarios):
+        for scenario in tqdm(self._scenarios, desc="Processing scenarios"): # 关于tqdm的多种用法
             # 获取场景元数据
             map_name = scenario._map_name
             token = scenario.token
